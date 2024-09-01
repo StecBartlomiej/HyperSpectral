@@ -5,7 +5,6 @@
 #include <fstream>
 
 
-
 EnviLexer::EnviLexer(std::istream &iss): iss_{iss}, ch_{}
 {
     std::string line{};
@@ -23,10 +22,14 @@ EnviLexer::EnviLexer(std::istream &iss): iss_{iss}, ch_{}
 
 void EnviLexer::ReadChar()
 {
-    if (eof())
+    if (Eof())
+    {
         ch_ = 0;
+    }
     else
+    {
         iss_.get(ch_);
+    }
 }
 
 std::optional<char> EnviLexer::PeekChar()
@@ -37,69 +40,86 @@ std::optional<char> EnviLexer::PeekChar()
 
 Token EnviLexer::NextToken()
 {
-    Token token{};
+    TokenType token_type = TokenType::UNKNOWN;
+    std::string value;
 
     SkipSpaces(*this);
 
     switch (ch_)
     {
         case '\0':
-            token = Token{TokenType::END_FILE, ""};
+            token_type = TokenType::END_FILE;
+            value = "";
             break;
         case '\n':
-            token = Token{TokenType::NEW_LINE, "\\n"};
+            token_type = TokenType::NEW_LINE;
+            value = "\\n";
             break;
         case ':':
-            token = Token{TokenType::COLON, ":"};
+            token_type = TokenType::COLON;
+            value = ":";
             break;
         case '=':
-            token = Token{TokenType::EQUAL, "="};
+            token_type = TokenType::EQUAL;
+            value = "=";
             break;
         case ';':
-            token = Token{TokenType::SEMICOLON, ";"};
+            token_type = TokenType::SEMICOLON;
+            value = ";";
             break;
         case '%':
-            token = Token{TokenType::PERCENTAGE, "%"};
+            token_type = TokenType::PERCENTAGE;
+            value = "%";
             break;
         case ',':
-            token = Token{TokenType::COMMA, ","};
+            token_type = TokenType::COMMA;
+            value = ",";
             break;
         case '(':
-            token = Token{TokenType::LEFT_PARENTHESIS, "("};
+            token_type = TokenType::LEFT_PARENTHESIS;
+            value = "(";
             break;
         case ')':
-            token = Token{TokenType::RIGHT_PARENTHESIS, ")"};
+            token_type = TokenType::RIGHT_PARENTHESIS;
+            value = ")";
             break;
         case '{':
-            token = Token{TokenType::LEFT_BRACE, "{"};
+            token_type = TokenType::LEFT_BRACE;
+            value = "{";
             break;
         case '}':
-            token = Token{TokenType::RIGHT_BRACE, "}"};
+            token_type = TokenType::RIGHT_BRACE;
+            value = "}";
             break;
         default:
             if (std::isdigit(ch_) || (ch_ == '-' && std::isdigit(PeekChar().value_or('\0'))) )
             {
-                token = Token{TokenType::NUMBER, ParseDigit(*this)};
+                token_type = TokenType::NUMBER;
+                value = ParseDigit(*this);
             }
             else if (IsLetter(ch_))
             {
-                token = Token{TokenType::WORD, ReadWhileTrue<IsLetter>(*this)};
+                token_type = TokenType::WORD;
+                value = ReadWhileTrue<IsLetter>(*this);
             }
             else
             {
-                token = Token{TokenType::UNKNOWN, std::string(1, ch_)};
+                token_type = TokenType::UNKNOWN;
+                value = std::string(1, ch_);
                 LOG_ERROR("Unknown token {}", ch_);
             }
             break;
     }
     ReadChar();
-    return token;
+    return Token{token_type, value};
 }
 
 void SkipSpaces(EnviLexer &lexer)
 {
     while(lexer.GetChar() == ' ')
+    {
         lexer.ReadChar();
+    }
 }
 
 bool IsLetter(char c)
@@ -112,7 +132,7 @@ std::string ParseDigit(EnviLexer &lexer)
     std::ostringstream oss{};
     bool had_comma = false;
 
-    while (!lexer.eof())
+    while (!lexer.Eof())
     {
         oss << lexer.GetChar();
 

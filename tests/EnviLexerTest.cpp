@@ -15,6 +15,7 @@ TEST_CASE("Basic usage", "[EnviLexer]")
     -1.3
     =;,%:
     (){}
+    new value = 3
     _
     )V0G0N";
 
@@ -40,6 +41,12 @@ TEST_CASE("Basic usage", "[EnviLexer]")
             Token{TokenType::RIGHT_PARENTHESIS, ")"},
             Token{TokenType::LEFT_BRACE, "{"},
             Token{TokenType::RIGHT_BRACE, "}"},
+            Token{TokenType::NEW_LINE, "\\n"},
+
+            Token{TokenType::WORD, "new"},
+            Token{TokenType::WORD, "value"},
+            Token{TokenType::EQUAL, "="},
+            Token{TokenType::NUMBER, "3"},
             Token{TokenType::NEW_LINE, "\\n"},
 
             Token{TokenType::UNKNOWN, "_"},

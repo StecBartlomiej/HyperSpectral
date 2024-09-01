@@ -2,10 +2,8 @@
 #define HYPERCPP_ENVILEXER_HPP
 
 #include <string>
-#include <fstream>
-#include <filesystem>
+#include <sstream>
 #include <optional>
-#include <functional>
 #include <string_view>
 
 
@@ -30,7 +28,6 @@ enum class TokenType
     UNKNOWN
 };
 
-
 struct Token
 {
     TokenType token_type;
@@ -46,7 +43,7 @@ public:
 
     [[nodiscard]] char GetChar() const { return ch_; }
     [[nodiscard]] std::optional<char> PeekChar();
-    [[nodiscard]] bool eof() const { return iss_.eof(); }
+    [[nodiscard]] bool Eof() const { return iss_.eof(); }
 
     void ReadChar();
 
@@ -55,7 +52,6 @@ private:
     char ch_;
 };
 
-[[nodiscard]] std::string ReadNumber(EnviLexer &lexer);
 
 void SkipSpaces(EnviLexer &lexer);
 
@@ -67,7 +63,7 @@ template <bool (*Function)(char)>
 [[nodiscard]] std::string ReadWhileTrue(EnviLexer &lexer)
 {
     std::ostringstream oss;
-    while (!lexer.eof())
+    while (!lexer.Eof())
     {
         oss << lexer.GetChar();
 
