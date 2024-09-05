@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.27)
-project(hypercpp)
+project(HyperSpectral)
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 #set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(DEBUG_INFO ON)

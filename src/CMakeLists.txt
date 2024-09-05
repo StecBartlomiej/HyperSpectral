@@ -1,8 +1,9 @@
 
 set(SOURCE_FILES
-        ImageHeader.cpp
         Logger.cpp
+        EnviHeader.cpp
         EnviLexer.cpp
+        EnviParser.cpp
 )
 
 add_library(lib_hypercpp STATIC ${SOURCE_FILES})
