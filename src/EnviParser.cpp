@@ -4,239 +4,233 @@
 
 #include <fstream>
 #include <spdlog/fmt/fmt.h>
+#include <charconv>
 
 
-std::optional<EnviHeader> ParseEnviFile(const std::filesystem::path &path)
+namespace envi
 {
-    LOG_INFO("Parsing file {}", path.string());
 
-    std::ifstream file{path};
-
-    if (!file.is_open())
+bool Accept(Parser &parser, TokenType type)
+{
+    if (parser.Get().token_type == type)
     {
-        LOG_ERROR("Cant open open file {} to parse ENVI HEADER", path.string());
-        return std::nullopt;
+        parser.Next();
+        return true;
     }
-
-    return ParseEnviText(file);
+    return false;
 }
 
-
-std::optional<EnviHeader> ParseEnviText(std::istream &iss)
+bool Expect(Parser &parser, TokenType type)
 {
-    LOG_INFO("Envi parsing starts");
-    std::vector<Token> tokens;
-    try
-    {
-        EnviLexer lexer{iss};
-        while (!lexer.Eof())
-        {
-            tokens.push_back(lexer.NextToken());
-        }
-    }
-    catch (const std::runtime_error &err)
-    {
-        LOG_ERROR("While tokenizing EnviHeader, {}", err.what());
-    }
-    LOG_INFO("Envi Lexer exited successfully");
+    return parser.Get().token_type == type;
+}
 
-
-    Parser parser{tokens};
-    EnviHeader envi_header{};
-
+void SkipToNewLine(Parser &parser)
+{
     while (!parser.End())
     {
-        if (parser.Get().token_type == TokenType::SEMICOLON)
+        if (parser.Get().token_type == TokenType::NEW_LINE)
+            return;
+        parser.Next();
+    }
+}
+
+auto ParseField(Parser &parser) -> std::optional<std::string>
+{
+    std::ostringstream oss{};
+    bool insert_space = false;
+
+    while (!Accept(parser, TokenType::EQUAL))
+    {
+        if (insert_space)
+            oss << " ";
+
+        if (!Expect(parser, TokenType::WORD))
         {
-            auto opt_new_line_idx = parser.Find(TokenType::NEW_LINE);
-            if (!opt_new_line_idx.has_value())
-            {
-                break;
-            }
-            parser.JumpTo(opt_new_line_idx.value());
-        }
-        else if (parser.Get().token_type == TokenType::WORD)
-        {
-            try
-            {
-                ParseWord(parser, envi_header);
-            }
-            catch (const std::runtime_error &err)
-            {
-                LOG_ERROR("In parsing encountered {}. The line is ignored", err.what());
-                while (parser.Get().token_type != TokenType::NEW_LINE || parser.Get().token_type != TokenType::END_FILE)
-                {
-                    parser.Next();
-                }
-            }
-        }
-        else if (parser.Get().token_type == TokenType::END_FILE)
-        {
-            break;
-        }
-        else
-        {
-            auto token = parser.Get();
-            LOG_ERROR("ENVI parser has failed on token_type: {}, value: {}",
-                      to_string(token.token_type), token.value);
+            LOG_ERROR("While parsing filed name, expected word, got type: {}, with value: {}",
+                      to_string(parser.Get().token_type),
+                      parser.Get().value);
             return std::nullopt;
         }
 
+        oss << parser.Get().value;
         parser.Next();
+
+        insert_space = true;
     }
-    LOG_INFO("Parsing ended successfully");
-    return std::optional<EnviHeader>{envi_header};
+    return std::optional<std::string>{oss.str()};
 }
 
-std::optional<std::size_t> Parser::Find(TokenType type) const noexcept
+Value ParseWord(Parser &parser)
 {
-     auto iter = std::find_if(std::next(tokens_.cbegin(), static_cast<int>(pos_)),
-                              tokens_.cend(),
-                              [=](const Token &t){return t.token_type == type; });
+    std::ostringstream oss{};
+    bool insert_space = false;
 
-     return iter != tokens_.end() ? std::optional<std::size_t>(pos_) : std::nullopt;
+    while (Expect(parser, TokenType::WORD) || Expect(parser, TokenType::NUMBER))
+    {
+        if (insert_space)
+            oss << " ";
+
+        oss << parser.Get().value;
+        parser.Next();
+
+        insert_space = true;
+    }
+    return oss.str();
 }
 
-void ParseWord(Parser &parser, EnviHeader &enviHeader)
+auto ParseNumber(Parser &parser) -> std::optional<Value>
 {
-    auto field_value = parser.Get().value;
-    parser.Next();
+    std::string_view str = parser.Get().value;
 
-    if (field_value == "bands")
+    auto iter = std::find(str.cbegin(), str.cend(), '.');
+
+    if (iter == str.end())
     {
-        auto opt_value = ParseUInt(parser);
-        if (!opt_value.has_value())
+        int number;
+        auto [_, ec] = std::from_chars(str.begin(), str.end(), number);
+
+        if (ec == std::errc())
         {
-            auto err_str = fmt::format("Expected uint value in field 'bands', got {}",  parser.Get().value);
-            throw std::runtime_error(err_str);
+            return std::optional<Value>{number};
         }
-        enviHeader.bands_number = opt_value.value();
-    }
-    else if (field_value == "byte")
-    {
-        AssertString(parser.Get().value, "order");
-        parser.Next();
-        assert(parser.Get().token_type == TokenType::EQUAL);
-        parser.Next();
-
-        auto opt_value = ParseUInt(parser);
-        if (!opt_value.has_value() || (opt_value.value() != 0 && opt_value.value() != 1))
+        else if (ec == std::errc::invalid_argument)
         {
-            auto err_str = fmt::format("Expected '0' or '1' value in field 'byte order', got {}",  parser.Get().value);
-            throw std::runtime_error(err_str);
+            LOG_ERROR("While parsing int, expected number value got {}, with type {}",
+                      parser.Get().value,
+                      to_string(parser.Get().token_type));
         }
-        enviHeader.byte_order = static_cast<ByteOrder>(opt_value.value());
-    }
-    else if (field_value == "data")
-    {
-        AssertString(parser.Get().value, "type");
-        parser.Next();
-        assert(parser.Get().token_type == TokenType::EQUAL);
-        parser.Next();
-
-        auto value = ParseUInt(parser).value_or(std::numeric_limits<uint32_t>::max());
-        auto opt_data_type = GetDataType(value);
-        if (!opt_data_type.has_value())
+        else if (ec == std::errc::result_out_of_range)
         {
-            auto err_str = fmt::format("Expected one of [1, 2, 3, 4, 5, 6, 9, 12, 13, 14, 15] value in field"
-                                       " 'data type', got {}",  parser.Get().value);
-            throw std::runtime_error(err_str);
+            LOG_ERROR("While parsing int, numeric value {} out of range",
+                      parser.Get().value);
         }
-        enviHeader.data_type =opt_data_type.value();
-    }
-    else if (field_value == "file")
-    {
-        AssertString(parser.Get().value, "type");
-        parser.Next();
-        assert(parser.Get().token_type == TokenType::EQUAL);
-        parser.Next();
-
-        throw std::runtime_error("Field 'tile type' not implemented");
-    }
-    else if (field_value == "header")
-    {
-        AssertString(parser.Get().value, "offset");
-        parser.Next();
-        assert(parser.Get().token_type == TokenType::EQUAL);
-        parser.Next();
-
-        auto opt_value = ParseUInt(parser);
-        if (!opt_value.has_value())
-        {
-            auto err_str = fmt::format("Expected uint value in field 'header offset', got {}",  parser.Get().value);
-            throw std::runtime_error(err_str);
-        }
-        enviHeader.header_offset = opt_value.value();
-    }
-    else if (field_value == "interleave")
-    {
-        assert(parser.Get().token_type == TokenType::WORD);
-        auto opt_value = GetInterleave(parser.Get().value);
-        assert(parser.Get().token_type == TokenType::EQUAL);
-        parser.Next();
-
-        if (!opt_value.has_value())
-        {
-            auto err_str = fmt::format("Expected one of ['BIL', 'BSQ', 'BIP'] value in field "
-                                       "'interleave', got {}",  parser.Get().value);
-            throw std::runtime_error(err_str);
-        }
-        enviHeader.interleave = opt_value.value();
-    }
-    else if (field_value == "lines")
-    {
-        assert(parser.Get().token_type == TokenType::EQUAL);
-        parser.Next();
-
-        auto opt_value = ParseUInt(parser);
-        if (!opt_value.has_value())
-        {
-            auto err_str = fmt::format("Expected uint value in field 'lines', got {}",  parser.Get().value);
-            throw std::runtime_error(err_str);
-        }
-        enviHeader.lines_per_image = opt_value.value();
-    }
-    else if (field_value == "samples")
-    {
-        assert(parser.Get().token_type == TokenType::EQUAL);
-        parser.Next();
-
-        auto opt_value = ParseUInt(parser);
-        if (!opt_value.has_value())
-        {
-            auto err_str = fmt::format("Expected uint value in field 'samples', got {}",  parser.Get().value);
-            throw std::runtime_error(err_str);
-        }
-        enviHeader.samples_per_image = opt_value.value();
+        return std::nullopt;
     }
     else
     {
-        auto err_str = fmt::format("Encountered unknown field {}",  parser.Get().value);
-        throw std::runtime_error(err_str);
-    }
-    parser.Next();
-}
+        float number;
+        auto [_, ec] = std::from_chars(str.begin(), str.end(), number);
 
-void AssertString(std::string_view value, std::string_view expect)
-{
-    if (value != expect)
-    {
-        auto str = fmt::format("Unknown field, expected '{}' got '{}'", expect, value);
-        throw std::runtime_error(str);
-    }
-}
-
-
-std::optional<uint32_t> ParseUInt(Parser &parser) noexcept
-{
-    assert(parser.Get().token_type == TokenType::NUMBER);
-    try
-    {
-        auto value = std::stol(parser.Get().value);
-        return std::optional<uint32_t>{value};
-    }
-    catch (const std::invalid_argument &err)
-    {
+        if (ec == std::errc())
+        {
+            return std::optional<Value>{number};
+        }
+        else if (ec == std::errc::invalid_argument)
+        {
+            LOG_ERROR("While parsing float, expected number value got {}, with type {}",
+                      parser.Get().value,
+                      to_string(parser.Get().token_type));
+        }
+        else if (ec == std::errc::result_out_of_range)
+        {
+            LOG_ERROR("While parsing float, numeric value {} out of range",
+                      parser.Get().value);
+        }
         return std::nullopt;
     }
+}
+
+auto ParseVector(Parser &parser) -> std::vector<std::string>
+{
+    std::vector<std::string> values;
+    while (!parser.End())
+    {
+        if (!Expect(parser, TokenType::WORD) && !Expect(parser, TokenType::NUMBER))
+        {
+            LOG_ERROR("While parsing list of values, expected word or number, got {} with type {}",
+                      parser.Get().value,
+                      to_string(parser.Get().token_type));
+        }
+        values.push_back(parser.Get().value);
+        parser.Next();
+
+        if (Accept(parser, TokenType::RIGHT_PARENTHESIS))
+            break;
+        else if (!Accept(parser, TokenType::COMMA))
+        {
+            LOG_ERROR("While parsing list of values, expected comma between values, got {} with type {}",
+                      parser.Get().value,
+                      to_string(parser.Get().token_type));
+        }
+    }
+    return values;
+}
+
+auto ParseValue(Parser &parser) -> std::optional<Value>
+{
+    if (Expect(parser, TokenType::LEFT_PARENTHESIS))
+    {
+        return std::optional<Value>{ParseVector(parser)};
+    }
+    else if (Expect(parser, TokenType::NUMBER))
+    {
+        return ParseNumber(parser);
+    }
+    else if (Expect(parser, TokenType::WORD))
+    {
+        return std::optional<Value>{ParseWord(parser)};
+    }
+    LOG_ERROR("While parsing value, encountered unexpected token type: {}, with value: {}",
+              to_string(parser.Get().token_type),
+              parser.Get().value);
+    return std::nullopt;
+}
+
+auto ParseExpression(Parser &parser) -> std::optional<Expression>
+{
+    auto opt_field = ParseField(parser);
+    if (!opt_field.has_value())
+    {
+        LOG_ERROR("While parsing expressions missing field name");
+        return std::nullopt;
+    }
+
+    auto opt_value = ParseValue(parser);
+    if (!opt_value.has_value())
+    {
+        LOG_ERROR("While parsing expressions missing field value");
+        return std::nullopt;
+    }
+
+    return std::optional<Expression>{Expression{opt_field.value(), opt_value.value()}};
+}
+
+auto Parse(Parser &parser) -> std::vector<Expression>
+{
+    std::vector<Expression> expressions;
+
+    while (!parser.End())
+    {
+        if (Accept(parser, TokenType::END_FILE))
+        {
+            break;
+        }
+        else if (Accept(parser, TokenType::SEMICOLON))
+        {
+            SkipToNewLine(parser);
+        }
+        else if (Expect(parser, TokenType::WORD))
+        {
+            auto opt_expr = ParseExpression(parser);
+            if (!opt_expr.has_value())
+            {
+                LOG_ERROR("Parsing expression was unsuccessful, skipping to new line");
+                SkipToNewLine(parser);
+                continue;
+            }
+            expressions.push_back(opt_expr.value());
+        }
+        else
+        {
+            LOG_ERROR("Expected expression, comment or end file got {} with value {}. Skipping to new line",
+                      to_string(parser.Get().token_type),
+                      parser.Get().value);
+            SkipToNewLine(parser);
+        }
+        parser.Next();
+    }
+    return expressions;
+}
+
 }

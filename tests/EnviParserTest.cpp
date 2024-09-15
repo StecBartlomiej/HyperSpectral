@@ -7,17 +7,69 @@
 #include <vector>
 
 
-TEST_CASE("Parser basic usage", "[ParseEnviText]")
+using namespace envi;
+
+TEST_CASE("Parser basic usage", "[Envi]")
+{
+    std::vector<Token> tokens = {
+            Token{TokenType::WORD, "lines"},
+            Token{TokenType::EQUAL, "="},
+            Token{TokenType::NUMBER, "3"},
+            Token{TokenType::NEW_LINE, "\\n"},
+            Token{TokenType::SEMICOLON, ";"},
+            Token{TokenType::WORD, "AAA"},
+            Token{TokenType::NEW_LINE, "\\n"},
+            Token{TokenType::END_FILE, ""},
+    };
+
+    Parser parser{tokens};
+
+    std::vector<Expression> expressions = Parse(parser);
+
+    REQUIRE(expressions.size() == 1);
+    REQUIRE(expressions[0].field == "lines");
+    REQUIRE(std::get<int>(expressions[0].value) == 3);
+}
+
+TEST_CASE("Envi parser and lexer integration", "[Envi]")
 {
     constexpr static std::string_view input = R"V0G0N( ENVI
-    lines = 3
+    four words in field = 3
+    ; comments should be ignored
+    float = -1.5
+    string = Word
+    string2 = Long text in value
+    string3 = Numbers in string 1 23
     )V0G0N";
 
     std::stringstream stringstream{input.data()};
-    auto opt_envi_header = ParseEnviText(stringstream);
 
-    REQUIRE(opt_envi_header.has_value());
+    EnviLexer lexer{stringstream};
 
-    auto envi_header = opt_envi_header.value();
-    REQUIRE(envi_header.lines_per_image == 3u);
+    std::vector<Token> tokens;
+    while (!lexer.Eof())
+    {
+        tokens.push_back(lexer.NextToken());
+    }
+
+    Parser parser{tokens};
+
+    std::vector<Expression> expressions = Parse(parser);
+
+    REQUIRE(expressions.size() == 5);
+
+    REQUIRE(expressions[0].field == "four words in field");
+    REQUIRE(std::get<int>(expressions[0].value) == 3);
+
+    REQUIRE(expressions[1].field == "float");
+    REQUIRE(std::get<float>(expressions[1].value) == -1.5f);
+
+    REQUIRE(expressions[2].field == "string");
+    REQUIRE(std::get<std::string>(expressions[2].value) == "Word");
+
+    REQUIRE(expressions[3].field == "string2");
+    REQUIRE(std::get<std::string>(expressions[3].value) == "Long text in value");
+
+    REQUIRE(expressions[4].field == "string3");
+    REQUIRE(std::get<std::string>(expressions[4].value) == "Numbers in string 1 23");
 }

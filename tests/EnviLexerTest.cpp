@@ -17,6 +17,7 @@ TEST_CASE("Basic usage", "[EnviLexer]")
     (){}
     new value = 3
     _
+    string2
     )V0G0N";
 
     const std::vector<Token> expected_output = {
@@ -50,6 +51,9 @@ TEST_CASE("Basic usage", "[EnviLexer]")
             Token{TokenType::NEW_LINE, "\\n"},
 
             Token{TokenType::UNKNOWN, "_"},
+            Token{TokenType::NEW_LINE, "\\n"},
+
+            Token{TokenType::WORD, "string2"},
             Token{TokenType::NEW_LINE, "\\n"},
 
             Token{TokenType::END_FILE, ""},

@@ -5,15 +5,43 @@
 #include "EnviLexer.hpp"
 
 #include <optional>
-#include <filesystem>
-#include <cassert>
-#include <expected>
-#include <exception>
+#include <variant>
+#include <vector>
+#include <string>
 
 
-[[nodiscard]] std::optional<EnviHeader> ParseEnviFile(const std::filesystem::path &path);
+namespace envi
+{
 
-[[nodiscard]] std::optional<EnviHeader> ParseEnviText(std::istream &iss);
+using Value = std::variant<int, float, std::string, std::vector<std::string>>;
+
+struct Expression
+{
+    std::string field;
+    Value value;
+};
+
+class Parser;
+
+[[nodiscard]] bool Accept(Parser &parser, TokenType type);
+[[nodiscard]] bool Expect(Parser &parser, TokenType type);
+
+void SkipToNewLine(Parser &parser);
+
+[[nodiscard]] auto ParseField(Parser &parser) -> std::optional<std::string>;
+
+[[nodiscard]] Value ParseWord(Parser &parser);
+
+[[nodiscard]] auto ParseNumber(Parser &parser) -> std::optional<Value>;
+
+[[nodiscard]] auto ParseVector(Parser &parser) -> std::vector<std::string>;
+
+[[nodiscard]] auto ParseValue(Parser &parser) -> std::optional<Value>;
+
+[[nodiscard]] auto ParseExpression(Parser &parser) -> std::optional<Expression>;
+
+[[nodiscard]] auto Parse(Parser &parser) -> std::vector<Expression>;
+
 
 class Parser
 {
@@ -26,19 +54,11 @@ public:
 
     void Next() { ++pos_; }
 
-    [[nodiscard]] std::optional<std::size_t> Find(TokenType type) const noexcept;
-
-    void JumpTo(std::size_t idx) { assert(idx < tokens_.size()); pos_ = idx; }
-
 private:
     std::vector<Token> tokens_;
     std::size_t pos_;
 };
 
-void AssertString(std::string_view value, std::string_view expect);
-
-void ParseWord(Parser &parser, EnviHeader &enviHeader);
-
-[[nodiscard]] std::optional<uint32_t> ParseUInt(Parser &parser) noexcept;
+}
 
 #endif //HYPERCPP_ENVIPARSER_HPP

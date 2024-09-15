@@ -5,6 +5,7 @@
 #include <vector>
 #include <optional>
 #include <string_view>
+#include <filesystem>
 
 
 enum class ByteOrder
@@ -41,6 +42,8 @@ enum class LengthUnits
     MICRO, NANO, MILLI, CENT, METER, UNKNOWN
 };
 
+std::optional<LengthUnits> GetLengthUnits(std::string_view text) noexcept;
+
 struct EnviHeader
 {
     uint32_t bands_number;
@@ -54,5 +57,8 @@ struct EnviHeader
     std::vector<float> wavelengths;
 };
 
+[[nodiscard]] std::optional<EnviHeader> ParseEnvi(const std::filesystem::path &path);
+
+[[nodiscard]] std::optional<EnviHeader> ParseEnviText(std::istream &iss);
 
 #endif //HYPERCPP_ENVIHEADER_HPP

@@ -1,5 +1,8 @@
 #include "EnviHeader.hpp"
 #include "Logger.hpp"
+#include "EnviParser.hpp"
+
+#include <fstream>
 
 
 std::optional<DataType> GetDataType(uint32_t value) noexcept
@@ -43,3 +46,60 @@ std::optional<Interleave> GetInterleave(std::string_view text) noexcept
         return std::optional<Interleave>{Interleave::BIP};
     return std::optional<Interleave>{std::nullopt};
 }
+
+std::optional<LengthUnits> GetLengthUnits(std::string_view text) noexcept
+{
+    if (text == "Micrometers" || text == "um")
+        return std::optional<LengthUnits>{LengthUnits::MICRO};
+    else if (text == "Nanometers" || text == "nm")
+        return std::optional<LengthUnits>{LengthUnits::NANO};
+    else if (text == "Millimeters" || text == "mm")
+        return std::optional<LengthUnits>{LengthUnits::MILLI};
+    else if (text == "Centimeters" || text == "cm")
+        return std::optional<LengthUnits>{LengthUnits::CENT};
+    return std::optional<LengthUnits>{std::nullopt};
+}
+
+
+std::optional<EnviHeader> ParseEnvi(const std::filesystem::path &path)
+{
+    LOG_INFO("Parsing file {}", path.string());
+
+    std::ifstream file{path};
+
+    if (!file.is_open())
+    {
+        LOG_ERROR("Cant open open file {} to parse ENVI HEADER", path.string());
+        return std::nullopt;
+    }
+
+    return ParseEnviText(file);
+}
+
+
+std::optional<EnviHeader> ParseEnviText(std::istream &iss)
+{
+    LOG_INFO("Envi parsing starts");
+    std::vector<Token> tokens;
+    try
+    {
+        EnviLexer lexer{iss};
+        while (!lexer.Eof())
+        {
+            tokens.push_back(lexer.NextToken());
+        }
+    }
+    catch (const std::runtime_error &err)
+    {
+        LOG_ERROR("While tokenizing EnviHeader, {}", err.what());
+    }
+    LOG_INFO("Envi Lexer exited successfully");
+
+
+//    Parser parser{tokens};
+
+    LOG_INFO("Parsing ended successfully");
+//    return std::optional<EnviHeader>{envi_header};
+    return std::nullopt;
+}
+
