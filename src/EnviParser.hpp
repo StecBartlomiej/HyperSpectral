@@ -1,7 +1,6 @@
 #ifndef HYPERCPP_ENVIPARSER_HPP
 #define HYPERCPP_ENVIPARSER_HPP
 
-#include "EnviHeader.hpp"
 #include "EnviLexer.hpp"
 
 #include <optional>

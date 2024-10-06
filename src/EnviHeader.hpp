@@ -1,6 +1,8 @@
 #ifndef HYPERCPP_ENVIHEADER_HPP
 #define HYPERCPP_ENVIHEADER_HPP
 
+#include "EnviParser.hpp"
+
 #include <cstdint>
 #include <vector>
 #include <optional>
@@ -39,7 +41,7 @@ std::optional<Interleave> GetInterleave(std::string_view text) noexcept;
 
 enum class LengthUnits
 {
-    MICRO, NANO, MILLI, CENT, METER, UNKNOWN
+    MICRO, NANO, MILLI, CENT, METER
 };
 
 std::optional<LengthUnits> GetLengthUnits(std::string_view text) noexcept;
@@ -53,12 +55,26 @@ struct EnviHeader
     Interleave interleave;
     uint32_t lines_per_image;
     uint32_t samples_per_image;
-    LengthUnits wavelength_unit;
-    std::vector<float> wavelengths;
+    std::string file_type;
+
+    std::optional<LengthUnits> wavelength_unit;
+    std::optional<std::vector<float>> wavelengths;
 };
 
-[[nodiscard]] std::optional<EnviHeader> ParseEnvi(const std::filesystem::path &path);
+[[nodiscard]] std::optional<EnviHeader> LoadEnvi(const std::filesystem::path &path);
 
 [[nodiscard]] std::optional<EnviHeader> ParseEnviText(std::istream &iss);
+
+void MatchExpression(const envi::Expression &expression, EnviHeader &envi_header);
+
+template <typename T>
+std::optional<T> GetType(envi::Value value) noexcept
+{
+    if (!std::holds_alternative<T>(value))
+    {
+        return std::nullopt;
+    }
+    return std::optional<T>{std::get<T>(value)};
+}
 
 #endif //HYPERCPP_ENVIHEADER_HPP

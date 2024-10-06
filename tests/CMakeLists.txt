@@ -3,6 +3,7 @@ set(TEST_FILES
         main.cpp
         EnviLexerTest.cpp
         EnviParserTest.cpp
+        EnviHeaderTest.cpp
 )
 
 add_executable(tests ${TEST_FILES})

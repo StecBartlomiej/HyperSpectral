@@ -3,7 +3,6 @@
 #include "Logger.hpp"
 
 #include <fstream>
-#include <spdlog/fmt/fmt.h>
 #include <charconv>
 
 
@@ -92,6 +91,7 @@ auto ParseNumber(Parser &parser) -> std::optional<Value>
 
         if (ec == std::errc())
         {
+            parser.Next();
             return std::optional<Value>{number};
         }
         else if (ec == std::errc::invalid_argument)
@@ -114,6 +114,7 @@ auto ParseNumber(Parser &parser) -> std::optional<Value>
 
         if (ec == std::errc())
         {
+            parser.Next();
             return std::optional<Value>{number};
         }
         else if (ec == std::errc::invalid_argument)
@@ -230,7 +231,7 @@ auto Parse(Parser &parser) -> std::vector<Expression>
         }
         parser.Next();
     }
+    LOG_INFO("Envi parsing exited successfully");
     return expressions;
 }
-
 }
