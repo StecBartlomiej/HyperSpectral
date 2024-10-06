@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string_view>
 #include <vector>
+#include <ranges>
 
 
 using namespace envi;
@@ -40,6 +41,7 @@ TEST_CASE("Envi parser and lexer integration", "[Envi]")
     string = Word
     string2 = Long text in value
     string3 = Numbers in string 1 23
+    list = {1, 2, 3}
     )V0G0N";
 
     std::stringstream stringstream{input.data()};
@@ -56,7 +58,7 @@ TEST_CASE("Envi parser and lexer integration", "[Envi]")
 
     std::vector<Expression> expressions = Parse(parser);
 
-    REQUIRE(expressions.size() == 5);
+    REQUIRE(expressions.size() == 6);
 
     REQUIRE(expressions[0].field == "four words in field");
     REQUIRE(std::get<int>(expressions[0].value) == 3);
@@ -72,4 +74,12 @@ TEST_CASE("Envi parser and lexer integration", "[Envi]")
 
     REQUIRE(expressions[4].field == "string3");
     REQUIRE(std::get<std::string>(expressions[4].value) == "Numbers in string 1 23");
+
+    REQUIRE(expressions[5].field == "list");
+    const std::vector<std::string> result_list = {"1", "2", "3"};
+    auto list = std::get<std::vector<std::string>>(expressions[5].value);
+    for (const auto &[idx, number] : std::views::enumerate(list))
+    {
+        REQUIRE(number == result_list[idx]);
+    }
 }

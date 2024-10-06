@@ -110,7 +110,7 @@ std::optional<EnviHeader> ParseEnviText(std::istream &iss)
         catch (const std::runtime_error &err)
         {
             LOG_ERROR("While matching expression after parsing, {}", err.what());
-            continue; // TODO: Throw/std::nullopt ?
+            return std::optional<EnviHeader>{std::nullopt};
         }
     }
     LOG_INFO("Parsing ended successfully");
@@ -203,6 +203,26 @@ void MatchExpression(const Expression &expression, EnviHeader &envi_header)
             throw std::runtime_error{"Value in field 'wavelength units' does not match known measure unit"};
         }
         envi_header.wavelength_unit = opt_unit.value();
+    }
+    else if (expression.field == "wavelength")
+    {
+        auto value = VariantToValue.operator()<std::vector<std::string>>("Wrong type, expected type 'List' in field 'wavelength'");
+        envi_header.wavelengths = std::vector<float>{};
+        envi_header.wavelengths->reserve(value.size());
+
+        try
+        {
+            for (const auto& str : value)
+            {
+                float number = std::stof(str);
+                envi_header.wavelengths->push_back(number);
+            }
+        }
+        catch (const std::invalid_argument &err)
+        {
+            envi_header.wavelengths.reset();
+            throw std::runtime_error{"Unable to cast value to float in field 'wavelength'"};
+        }
     }
     else
     {

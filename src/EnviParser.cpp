@@ -135,9 +135,13 @@ auto ParseNumber(Parser &parser) -> std::optional<Value>
 auto ParseVector(Parser &parser) -> std::vector<std::string>
 {
     std::vector<std::string> values;
+    parser.Next();
+
     while (!parser.End())
     {
-        if (!Expect(parser, TokenType::WORD) && !Expect(parser, TokenType::NUMBER))
+        if (Accept(parser, TokenType::NEW_LINE))
+            continue;
+        else if (!Expect(parser, TokenType::WORD) && !Expect(parser, TokenType::NUMBER))
         {
             LOG_ERROR("While parsing list of values, expected word or number, got {} with type {}",
                       parser.Get().value,
@@ -146,7 +150,7 @@ auto ParseVector(Parser &parser) -> std::vector<std::string>
         values.push_back(parser.Get().value);
         parser.Next();
 
-        if (Accept(parser, TokenType::RIGHT_PARENTHESIS))
+        if (Accept(parser, TokenType::RIGHT_BRACE))
             break;
         else if (!Accept(parser, TokenType::COMMA))
         {
@@ -160,7 +164,7 @@ auto ParseVector(Parser &parser) -> std::vector<std::string>
 
 auto ParseValue(Parser &parser) -> std::optional<Value>
 {
-    if (Expect(parser, TokenType::LEFT_PARENTHESIS))
+    if (Expect(parser, TokenType::LEFT_BRACE))
     {
         return std::optional<Value>{ParseVector(parser)};
     }
