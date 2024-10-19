@@ -119,6 +119,11 @@ std::optional<EnviHeader> ParseEnviText(std::istream &iss)
 
 void MatchExpression(const Expression &expression, EnviHeader &envi_header)
 {
+    std::vector<std::string> ignore_fields = {
+            "description", "file type", "sensor type",
+            "map info", "band names"
+    };
+
     auto VariantToValue = [&]<typename T>(std::string_view err_msg)
     {
         auto opt_val = GetType<T>(expression.value);
@@ -226,6 +231,14 @@ void MatchExpression(const Expression &expression, EnviHeader &envi_header)
     }
     else
     {
-        throw std::runtime_error{"Encountered unsupported field \'" + expression.field + "\'"};
+        auto idx = std::find(ignore_fields.begin(), ignore_fields.end(), expression.field);
+        if (idx != ignore_fields.end())
+        {
+            LOG_WARN("Ignoring the value of field '{}'", *idx);
+        }
+        else
+        {
+            throw std::runtime_error{"Encountered unsupported field \'" + expression.field + "\'"};
+        }
     }
 }

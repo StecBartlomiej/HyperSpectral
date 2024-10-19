@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <charconv>
+#include <string_view>
 
 
 namespace envi
@@ -87,7 +88,7 @@ auto ParseNumber(Parser &parser) -> std::optional<Value>
     if (iter == str.end())
     {
         int number;
-        auto [_, ec] = std::from_chars(str.begin(), str.end(), number);
+        auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), number);
 
         if (ec == std::errc())
         {
@@ -110,7 +111,7 @@ auto ParseNumber(Parser &parser) -> std::optional<Value>
     else
     {
         float number;
-        auto [_, ec] = std::from_chars(str.begin(), str.end(), number);
+        auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), number);
 
         if (ec == std::errc())
         {

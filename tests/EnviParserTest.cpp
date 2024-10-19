@@ -78,8 +78,9 @@ TEST_CASE("Envi parser and lexer integration", "[Envi]")
     REQUIRE(expressions[5].field == "list");
     const std::vector<std::string> result_list = {"1", "2", "3"};
     auto list = std::get<std::vector<std::string>>(expressions[5].value);
-    for (const auto &[idx, number] : std::views::enumerate(list))
+
+    for (std::size_t idx = 0; idx < result_list.size(); ++idx)
     {
-        REQUIRE(number == result_list[idx]);
+        REQUIRE(list[idx] == result_list[idx]);
     }
 }

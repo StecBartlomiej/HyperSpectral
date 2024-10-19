@@ -4,6 +4,7 @@ set(TEST_FILES
         EnviLexerTest.cpp
         EnviParserTest.cpp
         EnviHeaderTest.cpp
+        EntityComponentSystemTest.cpp
 )
 
 add_executable(tests ${TEST_FILES})
