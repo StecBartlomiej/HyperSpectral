@@ -5,6 +5,7 @@ set(SOURCE_FILES
         EnviLexer.cpp
         EnviParser.cpp
         EntityComponentSystem.cpp
+        Image.cu
 )
 
 add_library(lib_hypercpp STATIC ${SOURCE_FILES})

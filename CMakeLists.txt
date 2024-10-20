@@ -12,7 +12,6 @@ set(DISABLE_LOGGING OFF)
 
 
 if (MSVC)
-    add_compile_options(/W4)
 else ()
     add_compile_options(-O3 -Wall -Werror -Wextra -Wshadow -Wpedantic)
 endif ()
