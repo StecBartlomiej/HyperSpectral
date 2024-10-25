@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.27)
-project(HyperSpectral CXX CUDA)
+project(HyperSpectral CXX CUDA C)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
@@ -32,5 +32,4 @@ add_subdirectory(src)
 add_subdirectory(tests)
 
 add_executable(hypercpp main.cpp)
-target_link_libraries(hypercpp PUBLIC lib_hypercpp)
-set_target_properties(hypercpp PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+target_link_libraries(hypercpp PUBLIC lib_hypercpp lib_gui)

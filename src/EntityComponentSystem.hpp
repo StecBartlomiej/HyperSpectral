@@ -7,7 +7,6 @@
 #include <set>
 #include <bitset>
 #include <unordered_map>
-#include <optional>
 #include <array>
 #include <typeindex>
 
@@ -258,7 +257,7 @@ public:
     }
 
     template<typename T>
-    void DeleteComponent(Entity entity, T component)
+    void DeleteComponent(Entity entity)
     {
         component_manager_->DeleteComponent<T>(entity);
 

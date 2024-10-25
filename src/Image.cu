@@ -1,73 +1,120 @@
 #include "Image.hpp"
 
 #include <cassert>
-#include <functional>
-#include <fstream>
+#include <EntityComponentSystem.hpp>
+#include <filesystem>
+#include <string>
 
 
-std::unique_ptr<float> LoadImage(const std::filesystem::path &path, const EnviHeader &envi)
+extern Coordinator coordinator;
+
+
+static void GpuAssert(cudaError_t code, bool abort=true)
+{
+    if (code != cudaSuccess)
+    {
+        LOG_ERROR("GPU assert: {} {} {}\n", cudaGetErrorString(code), __FILE__, __LINE__);
+        if (abort) exit(code);
+    }
+}
+
+[[nodiscard]] Entity CreateImage(const FilesystemPaths &paths)
+{
+    auto id = coordinator.CreateEntity();
+
+    coordinator.AddComponent(id, paths);
+
+    const auto opt_envi = LoadEnvi(paths.envi_header);
+    if (!opt_envi.has_value())
+    {
+        const auto file = paths.envi_header.string();
+        LOG_ERROR("CreateImage: failed to load ENVI file {}!", file);
+        throw std::runtime_error{"Empty envi header"};
+    }
+    coordinator.AddComponent(id, opt_envi.value());
+    coordinator.AddComponent(id, ImageSize{
+        opt_envi->samples_per_image,
+        opt_envi->lines_per_image,
+        opt_envi->bands_number});
+
+
+    LOG_INFO("Created image id={}", id);
+    return id;
+}
+
+[[nodiscard]] std::shared_ptr<float> LoadImage(const std::filesystem::path &path, const EnviHeader &envi)
 {
     std::ifstream file{path, std::ios_base::binary | std::ios::in};
     assert(file.is_open());
     return LoadImage(file, envi) ;
 }
 
-// TODO: add different types
-std::unique_ptr<float> LoadImage(std::istream &iss, const EnviHeader &envi)
+[[nodiscard]] std::shared_ptr<float> LoadImage(std::istream &iss, const EnviHeader &envi)
 {
-    assert(envi.data_type == DataType::FLOAT32);
-    assert(envi.byte_order == ByteOrder::LITTLE_ENDIAN);
-
-    std::unique_ptr<float> host_data{new float[envi.bands_number *
-                                               envi.lines_per_image *
-                                               envi.samples_per_image]};
-
-    std::function<float*(std::size_t, std::size_t, std::size_t)> access_scheme;
-
-    std::size_t dim1, dim2, dim3;
-    switch (envi.interleave)
+    switch (envi.data_type)
     {
-        case Interleave::BSQ:
-            dim1 = envi.bands_number;
-            dim2 = envi.lines_per_image;
-            dim3 = envi.samples_per_image;
-            access_scheme = [&, bands=dim1, lines=dim2, samples=dim3](std::size_t i, std::size_t j, std::size_t k) -> float* {
-                return host_data.get() + i * bands + j * lines + k * samples;
-            };
-            break;
-        case Interleave::BIP:
-            dim1 = envi.lines_per_image;
-            dim2 = envi.samples_per_image;
-            dim3 = envi.bands_number;
-            access_scheme = [&, bands=dim1, lines=dim2, samples=dim3](std::size_t i, std::size_t j, std::size_t k) -> float* {
-                return host_data.get() + k * bands + i * lines + j * samples;
-            };
-            break;
-        case Interleave::BIL:
-            dim1 = envi.lines_per_image;
-            dim2 = envi.bands_number;
-            dim3 = envi.samples_per_image;
-            access_scheme = [&, bands=dim1, lines=dim2, samples=dim3](std::size_t i, std::size_t j, std::size_t k) -> float* {
-                return host_data.get() + j * bands + i * lines + k * samples;
-            };
-            break;
+        case DataType::BYTE:
+            return LoadImageType<char>(iss, envi);
+        case DataType::INT16:
+            return LoadImageType<int16_t>(iss, envi);
+        case DataType::INT32:
+            return LoadImageType<int32_t>(iss, envi);
+        case DataType::INT64:
+            return LoadImageType<int64_t>(iss, envi);
+        case DataType::UINT16:
+            return LoadImageType<int16_t>(iss, envi);
+        case DataType::UINT32:
+            return LoadImageType<int32_t>(iss, envi);
+        case DataType::UINT64:
+            return LoadImageType<int64_t>(iss, envi);
+        case DataType::FLOAT32:
+            return LoadImageType<float>(iss, envi);
+        case DataType::FLOAT64:
+            return LoadImageType<double>(iss, envi);
+
+        case DataType::COMPLEX32:
+        case DataType::COMPLEX64:
+        default:
+            LOG_ERROR("LoadImage unsupported data type: {}", static_cast<int>(envi.data_type));
+            return nullptr;
     }
+    return nullptr;
+}
 
-    // TODO: add bit order
-    for (std::size_t i = 0; i < dim1; ++i)
-    {
-        for (std::size_t j = 0; j < dim2; ++j)
-        {
-            for (std::size_t k = 0; k < dim3; ++k)
-            {
-                iss.read(reinterpret_cast<char*>(access_scheme(i, j, k)), sizeof(float));
-            }
-        }
-    }
-
-
-
-    return std::move(host_data);
+void AlgorithmPCA::Run()
+{
+    // auto dim1 = 1;
+    // auto dim2 = 1;
+    //
+    // std::vector<float> covariance_matrix(dim1 * dim1, 0);
+    //
+    // /// Calculate mean
+    // for (std::size_t i = 0; i < dim1; ++i)
+    // {
+    //     float mean = 0;
+    //     for (std::size_t j = 0; j < dim2; ++j)
+    //     {
+    //         mean += host_data.get()[i * dim2 + j];
+    //     }
+    //     mean /= pixel_count;
+    //
+    //     for (std::size_t j = 0; j < dim2; ++j)
+    //     {
+    //         host_data.get()[i * dim2 + j] -= mean;
+    //     }
+    // }
+    //
+    // // Matrix multiplication
+    // for (std::size_t i = 0; i < dim1; ++i)
+    // {
+    //     for (std::size_t j = 0; j < dim2; ++j)
+    //     {
+    //         for (std::size_t k = 0; k < dim1; ++k)
+    //         {
+    //             covariance_matrix[i * dim1 + k] += host_data.get()[i * dim2 + j] * host_data.get()[j * dim1 + k];
+    //         }
+    //     }
+    // }
 }
 
 cudaPitchedPtr LoadImageCuda(const EnviHeader &envi, float *data)

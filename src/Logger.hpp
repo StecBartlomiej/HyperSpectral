@@ -21,6 +21,7 @@
 #endif
 
 
+void GlfwErrorCallback(int error, const char* description);
 
 class Logger
 {
