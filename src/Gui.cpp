@@ -170,13 +170,12 @@ void GuiImageWindow::Show()
         ImGui::EndCombo();
     }
 
-    ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(image_size_.width * 2, image_size_.height * 2));
-
     if (ImGui::SliderInt("Dlugosc fali", &selected_band_, 1, image_size_.depth))
     {
         LoadTexture();
     }
-    ImGui::Text("Texture id=%d", texture);
+
+    ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(image_size_.width * 2, image_size_.height * 2));
 
     ImGui::End();
 }
