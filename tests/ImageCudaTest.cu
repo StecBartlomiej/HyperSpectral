@@ -44,6 +44,9 @@ TEST_CASE("Calculating mean", "[CUDA]")
 
     LOG_INFO("Mean kernel execution time: {} us",
         std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+
+    cudaFree(cuda_img.data);
+    cudaFree(cuda_mean.data);
 }
 
 
@@ -76,6 +79,8 @@ TEST_CASE("Subtract", "[CUDA]")
         for (std::size_t j = 0; j < 3; j++)
             REQUIRE(arr_res[i * 3 + j] == arr[i * 3 + j] - subtract_value[j]);
     }
+    cudaFree(img.data);
+    cudaFree(mean.data);
 }
 
 TEST_CASE("Matmul square matrix", "[CUDA]")
@@ -111,9 +116,11 @@ TEST_CASE("Matmul square matrix", "[CUDA]")
         for (std::size_t j = 0; j < 3; ++j)
             REQUIRE(covariance[i * 3 + j] == result[i * 3 + j]);
     }
+    cudaFree(img.data);
+    cudaFree(cov.data);
 }
 
-TEST_CASE("Covariance rectangle matrix", "[CUDA]")
+TEST_CASE("MatMaulTrans rectangle matrix", "[CUDA]")
 {
     float arr[] = {1, 2, 3, 4,
                    5, 6, 7, 8,
@@ -152,6 +159,8 @@ TEST_CASE("Covariance rectangle matrix", "[CUDA]")
         for (std::size_t j = 0; j < 4; ++j)
             REQUIRE(covariance[i * 4 + j] == result[i * 4 + j] / 3.f);
     }
+    cudaFree(cuda_img);
+    cudaFree(cuda_cov);
 }
 
 void CovarianceMatrix(Matrix host_img, Matrix covariance)
@@ -253,7 +262,7 @@ TEST_CASE("Covariance square matrix", "[CUDA]")
 
 }
 
-TEST_CASE("Covariance large matrix", "[CUDA]")
+TEST_CASE("Covariance larger matrix", "[CUDA]")
 {
     float arr[12 * 8] = {
         0.8222,  0.8276,  0.7758,  0.4249,  0.0869,  0.9525,  0.6927,  0.7245,
