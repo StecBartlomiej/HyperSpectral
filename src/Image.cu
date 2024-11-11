@@ -5,18 +5,14 @@
 #include <filesystem>
 #include <string>
 
+#include <iostream>
+#include <map>
+
 
 extern Coordinator coordinator;
 
 
-static void GpuAssert(cudaError_t code, bool abort=true)
-{
-    if (code != cudaSuccess)
-    {
-        LOG_ERROR("GPU assert: {} {} {}\n", cudaGetErrorString(code), __FILE__, __LINE__);
-        if (abort) exit(code);
-    }
-}
+
 
 [[nodiscard]] Entity CreateImage(const FilesystemPaths &paths)
 {
@@ -81,40 +77,78 @@ static void GpuAssert(cudaError_t code, bool abort=true)
     return nullptr;
 }
 
-void AlgorithmPCA::Run()
+std::shared_ptr<float> GetImageData(Entity entity)
 {
-    // auto dim1 = 1;
-    // auto dim2 = 1;
-    //
-    // std::vector<float> covariance_matrix(dim1 * dim1, 0);
-    //
-    // /// Calculate mean
-    // for (std::size_t i = 0; i < dim1; ++i)
-    // {
-    //     float mean = 0;
-    //     for (std::size_t j = 0; j < dim2; ++j)
-    //     {
-    //         mean += host_data.get()[i * dim2 + j];
-    //     }
-    //     mean /= pixel_count;
-    //
-    //     for (std::size_t j = 0; j < dim2; ++j)
-    //     {
-    //         host_data.get()[i * dim2 + j] -= mean;
-    //     }
-    // }
-    //
-    // // Matrix multiplication
-    // for (std::size_t i = 0; i < dim1; ++i)
-    // {
-    //     for (std::size_t j = 0; j < dim2; ++j)
-    //     {
-    //         for (std::size_t k = 0; k < dim1; ++k)
-    //         {
-    //             covariance_matrix[i * dim1 + k] += host_data.get()[i * dim2 + j] * host_data.get()[j * dim1 + k];
-    //         }
-    //     }
-    // }
+    static std::map<Entity, std::weak_ptr<float>> loaded_img{};
+
+    const auto iter = loaded_img.find(entity);
+    if (iter != loaded_img.end() && !iter->second.expired())
+    {
+        return iter->second.lock();
+    }
+
+    const auto &path = coordinator.GetComponent<FilesystemPaths>(entity).img_data;
+    const auto &envi = coordinator.GetComponent<EnviHeader>(entity);
+
+    std::shared_ptr<float> ptr = LoadImage(path, envi);
+    loaded_img[entity] = ptr;
+    return std::move(ptr);
+}
+
+
+void RunPCA(Entity image)
+{
+    const auto img_size = coordinator.GetComponent<ImageSize>(image);
+
+    const auto data = GetImageData(image);
+    const auto ptr = data.get();
+
+    const auto N = img_size.depth;
+    const auto M = img_size.width * img_size.height;
+
+
+    std::vector<float> mean(N, 0);
+    for (std::size_t i = 0; i < M; ++i)
+    {
+        std::vector<float> pixel_values(N, 0);
+
+        for (std::size_t j = 0; j < N; ++j)
+        {
+            pixel_values[j] = ptr[j * M + i]; // J * M = band, i - pixel position
+            mean[j] += pixel_values[j];
+            mean[j] /= static_cast<float>(M);
+        }
+    }
+
+    std::vector<float> covariance_matrix(N * N, 0);
+    for (std::size_t i = 0; i < M; ++i)
+    {
+        std::vector<float> pixel_values(N, 0);
+        for (std::size_t j = 0; j < N; ++j)
+        {
+            pixel_values[j] = ptr[j * M + i]; // J * M = band, i - pixel position
+            pixel_values[j] -= mean[j];
+        }
+
+        for (std::size_t j = 0; j < N; ++j)
+        {
+            for (std::size_t k = 0; k < N; ++k)
+            {
+                covariance_matrix[j * N + k] += pixel_values[k] * pixel_values[j];
+                covariance_matrix[j * N + k] /= static_cast<float>(M);
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < N; ++i)
+    {
+        for (std::size_t j = 0; j < N; ++j)
+        {
+            std::cout << covariance_matrix[i * N + j] << " ";
+        }
+        std::cout << "\n";
+    }
+    std::cout.flush();
 }
 
 cudaPitchedPtr LoadImageCuda(const EnviHeader &envi, float *data)
@@ -148,3 +182,61 @@ cudaPitchedPtr LoadImageCuda(const EnviHeader &envi, float *data)
     return host_p;
 }
 
+__device__ float GetElement(const Matrix matrix, std::size_t y, std::size_t x)
+{
+    return matrix.data[y * matrix.width + x];
+}
+
+__device__ void SetElement(const Matrix matrix, std::size_t y, std::size_t x, float value)
+{
+    matrix.data[y * matrix.width + x] = value;
+}
+
+__global__ void Mean(Matrix img, Matrix mean)
+{
+    const auto x = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (x < img.width)
+    {
+        float result = 0.0f;
+
+        // TODO: improve
+        for (std::size_t y = 0; y < img.height; ++y)
+        {
+            result += GetElement(img, y, x);
+        }
+        result /= static_cast<float>(img.height);
+        SetElement(mean, 0, x, result);
+    }
+}
+
+__global__ void SubtractMean(Matrix img, Matrix mean)
+{
+    const auto x = blockIdx.x * blockDim.x + threadIdx.x;
+    const auto y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (y < img.height && x < img.width)
+    {
+        const float value = GetElement(img, y, x) - GetElement(mean, 0, x);
+        SetElement(img, y, x, value);
+    }
+}
+
+
+__global__ void MatMulTrans(const Matrix img, const Matrix result)
+{
+    const std::size_t y = blockIdx.y * blockDim.y + threadIdx.y;
+    const std::size_t x = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (x >= result.width || y >= result.height)
+        return;
+
+    float value = 0.f;
+    for (std::size_t i = 0; i < img.height; ++i)
+    {
+        // X^T * X
+        value += GetElement(img, i, y) * GetElement(img, i, x);
+    }
+    value /= static_cast<float>(img.height);
+    SetElement(result, y, x, value);
+}

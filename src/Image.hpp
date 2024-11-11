@@ -18,12 +18,10 @@
 
 [[nodiscard]] std::shared_ptr<float> LoadImage(std::istream &iss, const EnviHeader &envi);
 
+[[nodiscard]] std::shared_ptr<float> GetImageData(Entity entity);
 
-class AlgorithmPCA
-{
-public:
-    void Run();
-};
+
+void RunPCA(Entity image);
 
 [[nodiscard]] cudaPitchedPtr LoadImageCuda(const EnviHeader &envi, float* data);
 
@@ -82,5 +80,52 @@ template<typename T>
     }
     return std::move(host_data);
 }
+
+inline void GpuAssert(cudaError_t code, bool abort=true)
+{
+    if (code != cudaSuccess)
+    {
+        LOG_ERROR("GPU assert: {} {} {}\n", cudaGetErrorString(code), __FILE__, __LINE__);
+        if (abort) exit(code);
+    }
+}
+
+
+/**
+* @param height first dimension of matrix
+* @param width second dimension of matrix
+* @param data pointer to flatten 2D array of size \a height times \a width
+*/
+struct Matrix
+{
+    std::size_t height;
+    std::size_t width;
+    float *data;
+};
+
+void PCA(const std::vector<Entity> &images);
+
+/**
+ * @brief Calculates mean of each \a M = \a img.height and \a N = \a img.width:
+ * \f[ m = \frac{1}{M} \sum_{i=1}^M [x_1 x_2 .. x_n]^T \f]
+ *
+ * @param img input matrix.
+ * @param mean matrix of computed means with \a mean.height = 1 and \a mean.width = \a img.width.
+ * @return mean
+ */
+__global__ void Mean(Matrix img, Matrix mean);
+
+/**
+ * @brief Subtracts \a mean values from \a img in place.
+ * @param img input matrix, write result of substract to \a img.data
+ * @param mean input matrix, with size \a mean.heigth = 1, \a mean.width = \a img.width.
+ * @return img
+ */
+__global__ void SubtractMean(Matrix img, Matrix mean);
+
+__global__ void MatMulTrans(Matrix img, Matrix result);
+
+
+void CovarianceMatrix(Matrix host_img, Matrix covariance);
 
 #endif //HYPERSPECTRAL_IMAGE_HPP

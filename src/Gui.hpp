@@ -20,8 +20,6 @@ void DeleteTexture(GLuint texture);
 
 void LoadTextureGrayF32(GLuint texture,uint32_t width, uint32_t height, const float* data);
 
-[[nodiscard]] std::shared_ptr<float> GetImageData(Entity entity);
-
 
 class GuiImageWindow final: public System
 {

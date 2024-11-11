@@ -100,23 +100,7 @@ GLFWwindow* CreateWindow()
     return window;
 }
 
-std::shared_ptr<float> GetImageData(Entity entity)
-{
-    static std::map<Entity, std::weak_ptr<float>> loaded_img{};
 
-    const auto iter = loaded_img.find(entity);
-    if (iter != loaded_img.end() && !iter->second.expired())
-    {
-        return iter->second.lock();
-    }
-
-    const auto &path = coordinator.GetComponent<FilesystemPaths>(entity).img_data;
-    const auto &envi = coordinator.GetComponent<EnviHeader>(entity);
-
-    std::shared_ptr<float> ptr = LoadImage(path, envi);
-    loaded_img[entity] = ptr;
-    return std::move(ptr);
-}
 
 GuiImageWindow* RegisterGuiImageWindow()
 {
