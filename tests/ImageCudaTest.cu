@@ -5,6 +5,7 @@
 #include "Image.hpp"
 
 #include <chrono>
+#include <memory>
 
 
 
@@ -105,7 +106,7 @@ TEST_CASE("Matmul square matrix", "[CUDA]")
 
     dim3 threadsPerBlock(16, 16);
     dim3 numBlocks(1, 1);
-    MatMulTrans<<<numBlocks, threadsPerBlock>>>(img, cov);
+    MatMulTrans<<<numBlocks, threadsPerBlock>>>(img, cov, 1);
     cudaDeviceSynchronize();
 
     cudaMemcpy(covariance, cov.data, 9 * sizeof(float), cudaMemcpyDeviceToHost);
@@ -144,7 +145,7 @@ TEST_CASE("MatMaulTrans rectangle matrix", "[CUDA]")
 
     dim3 threadsPerBlock(16, 16);
     dim3 numBlocks(1, 1);
-    MatMulTrans<<<numBlocks, threadsPerBlock>>>(img, cov);
+    MatMulTrans<<<numBlocks, threadsPerBlock>>>(img, cov, 1);
     cudaDeviceSynchronize();
 
     cudaMemcpy(covariance, cuda_cov, 12 * sizeof(float), cudaMemcpyDeviceToHost);
@@ -176,14 +177,14 @@ void CovarianceMatrix(Matrix host_img, Matrix covariance)
     Matrix mean{1, dim2, nullptr};
     Matrix result{dim2, dim2, nullptr};
 
-    GpuAssert(cudaMalloc(&img.data, dim1 * dim2 * sizeof(float)));
-    GpuAssert(cudaMemcpy(img.data, host_img.data, dim1 * dim2 * sizeof(float), cudaMemcpyHostToDevice));
+    CudaAssert(cudaMalloc(&img.data, dim1 * dim2 * sizeof(float)));
+    CudaAssert(cudaMemcpy(img.data, host_img.data, dim1 * dim2 * sizeof(float), cudaMemcpyHostToDevice));
 
-    GpuAssert(cudaMalloc(&mean.data, dim2 * sizeof(float)));
-    GpuAssert(cudaMemset(mean.data, 0, dim2 * sizeof(float)));
+    CudaAssert(cudaMalloc(&mean.data, dim2 * sizeof(float)));
+    CudaAssert(cudaMemset(mean.data, 0, dim2 * sizeof(float)));
 
-    GpuAssert(cudaMalloc(&result.data, dim2 * dim2 * sizeof(float)));
-    GpuAssert(cudaMemset(result.data, 0, dim2 * dim2 * sizeof(float)));
+    CudaAssert(cudaMalloc(&result.data, dim2 * dim2 * sizeof(float)));
+    CudaAssert(cudaMemset(result.data, 0, dim2 * dim2 * sizeof(float)));
 
     dim3 threadsPerBlock1(1024);
     dim3 numBlocks1((dim1 / 1024) + 1);
@@ -196,9 +197,9 @@ void CovarianceMatrix(Matrix host_img, Matrix covariance)
 
     dim3 threadsPerBlock3(64, 16);
     dim3 numBlocks3((dim1 / 64) + 1, (dim2 / 16) + 1);
-    MatMulTrans<<<numBlocks3, threadsPerBlock3>>>(img, result);
+    MatMulTrans<<<numBlocks3, threadsPerBlock3>>>(img, result, 1);
 
-    GpuAssert(cudaMemcpy(covariance.data, result.data, dim2 * dim2 * sizeof(float), cudaMemcpyDeviceToHost));
+    CudaAssert(cudaMemcpy(covariance.data, result.data, dim2 * dim2 * sizeof(float), cudaMemcpyDeviceToHost));
 
     cudaFree(img.data);
     cudaFree(mean.data);
@@ -304,7 +305,31 @@ TEST_CASE("Covariance larger matrix", "[CUDA]")
     {
         for (std::size_t j = 0; j < dim2; ++j)
             REQUIRE_THAT(res[i * dim2 + j],
-                Catch::Matchers::WithinRel(static_cast<double>(covariance[i * dim2 + j]), 0.01)
+                Catch::Matchers::WithinRel(covariance[i * dim2 + j], 0.01f)
                 );
+    }
+}
+
+TEST_CASE("PCA", "[CUDA]")
+{
+
+    std::shared_ptr<float[]> d1{new float[]{0.6787, 0.3922, 0.7060, 0.0462,
+                                            0.7577, 0.6555, 0.0318, 0.0971,
+                                            0.7431, 0.1712, 0.2769, 0.8235}};
+
+    std::shared_ptr<float[]> d2{new float[]{0.6948, 0.0344, 0.7655, 0.4898,
+                                            0.3171, 0.4387, 0.7952, 0.4456,
+                                            0.9502, 0.3816, 0.1869, 0.6463}};
+
+    std::vector<std::shared_ptr<float[]>> data = {std::move(d1), std::move(d2)};
+    auto LoadData = [=, i=0]() mutable ->std::shared_ptr<float[]>{ return data[i++]; };
+
+    ResultPCA result = PCA(LoadData, 3, 4, 2);
+
+    constexpr std::array<float, 4> eigenvalues = {0.0021, 0.0237, 0.0769, 0.1120};
+
+    for (int i = 0; i < 4; ++i)
+    {
+        REQUIRE_THAT(eigenvalues[i], Catch::Matchers::WithinRel(result.eigenvalues.data[i], 0.01f));
     }
 }

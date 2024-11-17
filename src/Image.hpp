@@ -9,6 +9,7 @@
 #include <memory>
 #include <filesystem>
 #include <cuda_runtime.h>
+#include <cusolverDn.h>
 #include <fstream>
 
 
@@ -81,15 +82,23 @@ template<typename T>
     return std::move(host_data);
 }
 
-inline void GpuAssert(cudaError_t code, bool abort=true)
+inline void CudaAssert(cudaError_t code, bool abort=true)
 {
     if (code != cudaSuccess)
     {
-        LOG_ERROR("GPU assert: {} {} {}\n", cudaGetErrorString(code), __FILE__, __LINE__);
+        LOG_ERROR("CUDA assert: {} at {}:{}\n", cudaGetErrorString(code), __FILE__, __LINE__);
         if (abort) exit(code);
     }
 }
 
+inline void CusolverAssert(cusolverStatus_t code, bool abort=true)
+{
+    if (code != CUSOLVER_STATUS_SUCCESS)
+    {
+        LOG_ERROR("CUSOLVER error {} at {}:{}\n", static_cast<int>(code), __FILE__, __LINE__);
+        if (abort) exit(code);
+    }
+}
 
 /**
 * @param height first dimension of matrix
@@ -103,7 +112,12 @@ struct Matrix
     float *data;
 };
 
-void PCA(const std::vector<Entity> &images);
+struct CpuMatrix
+{
+    std::size_t height;
+    std::size_t width;
+    std::unique_ptr<float[]> data;
+};
 
 /**
  * @brief Calculates mean of each \a M = \a img.height and \a N = \a img.width:
@@ -127,10 +141,25 @@ __global__ void SubtractMean(Matrix img, Matrix mean);
  * @brief Computes matrix multiplication of \a img with transposed \a img.
  * @param img input matrix, \a img.data must be not nullptr
  * @param result result of computed matrix multiplication
+ * @param data_count count of images that will be processed
  */
-__global__ void MatMulTrans(Matrix img, Matrix result);
+__global__ void MatMulTrans(Matrix img, Matrix result, int data_count);
 
 
-void CovarianceMatrix(Matrix host_img, Matrix covariance);
+struct ResultPCA
+{
+    CpuMatrix eigenvalues;
+    CpuMatrix eigenvectors;
+};
+
+/**
+* @brief performs PCA
+* @param LoadData function returning \a data_count 2d flatten arrays with size \a hegith * \a width
+* @param height hegith of 2d flatten array
+* @param width width of 2d flatten array
+* @param data_count count of input data
+* @result returns eigenvalues sorted in ascending order and eigenvectors
+*/
+[[nodiscard]] ResultPCA PCA(std::function<std::shared_ptr<float[]>()> LoadData, uint32_t height, uint32_t width, std::size_t data_count);
 
 #endif //HYPERSPECTRAL_IMAGE_HPP
