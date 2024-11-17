@@ -36,7 +36,7 @@ private:
     int selected_band_ = 1;
     std::string name_{};
     ImageSize image_size_{0, 0, 1};
-    std::shared_ptr<float> image_data_;
+    std::shared_ptr<float[]> image_data_;
 };
 
 [[nodiscard]] GuiImageWindow* RegisterGuiImageWindow();

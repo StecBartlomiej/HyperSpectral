@@ -13,7 +13,6 @@ extern Coordinator coordinator;
 
 
 
-
 [[nodiscard]] Entity CreateImage(const FilesystemPaths &paths)
 {
     auto id = coordinator.CreateEntity();
@@ -38,14 +37,14 @@ extern Coordinator coordinator;
     return id;
 }
 
-[[nodiscard]] std::shared_ptr<float> LoadImage(const std::filesystem::path &path, const EnviHeader &envi)
+[[nodiscard]] std::shared_ptr<float[]> LoadImage(const std::filesystem::path &path, const EnviHeader &envi)
 {
     std::ifstream file{path, std::ios_base::binary | std::ios::in};
     assert(file.is_open());
     return LoadImage(file, envi) ;
 }
 
-[[nodiscard]] std::shared_ptr<float> LoadImage(std::istream &iss, const EnviHeader &envi)
+[[nodiscard]] std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi)
 {
     switch (envi.data_type)
     {
@@ -77,9 +76,9 @@ extern Coordinator coordinator;
     return nullptr;
 }
 
-std::shared_ptr<float> GetImageData(Entity entity)
+std::shared_ptr<float[]> GetImageData(Entity entity)
 {
-    static std::map<Entity, std::weak_ptr<float>> loaded_img{};
+    static std::map<Entity, std::weak_ptr<float[]>> loaded_img{};
 
     const auto iter = loaded_img.find(entity);
     if (iter != loaded_img.end() && !iter->second.expired())
@@ -90,7 +89,7 @@ std::shared_ptr<float> GetImageData(Entity entity)
     const auto &path = coordinator.GetComponent<FilesystemPaths>(entity).img_data;
     const auto &envi = coordinator.GetComponent<EnviHeader>(entity);
 
-    std::shared_ptr<float> ptr = LoadImage(path, envi);
+    std::shared_ptr<float[]> ptr = LoadImage(path, envi);
     loaded_img[entity] = ptr;
     return std::move(ptr);
 }

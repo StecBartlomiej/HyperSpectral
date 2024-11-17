@@ -14,11 +14,11 @@
 
 [[nodiscard]] Entity CreateImage(const FilesystemPaths &paths);
 
-[[nodiscard]] std::shared_ptr<float> LoadImage(const std::filesystem::path &path, const EnviHeader &envi);
+[[nodiscard]] std::shared_ptr<float[]> LoadImage(const std::filesystem::path &path, const EnviHeader &envi);
 
-[[nodiscard]] std::shared_ptr<float> LoadImage(std::istream &iss, const EnviHeader &envi);
+[[nodiscard]] std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi);
 
-[[nodiscard]] std::shared_ptr<float> GetImageData(Entity entity);
+[[nodiscard]] std::shared_ptr<float[]> GetImageData(Entity entity);
 
 
 void RunPCA(Entity image);
@@ -26,11 +26,11 @@ void RunPCA(Entity image);
 [[nodiscard]] cudaPitchedPtr LoadImageCuda(const EnviHeader &envi, float* data);
 
 template<typename T>
-[[nodiscard]] std::shared_ptr<float> LoadImageType(std::istream &iss, const EnviHeader &envi)
+[[nodiscard]] std::shared_ptr<float[]> LoadImageType(std::istream &iss, const EnviHeader &envi)
 {
     assert(envi.byte_order == ByteOrder::LITTLE_ENDIAN);
 
-    std::shared_ptr<float> host_data{new float[envi.bands_number *
+    std::shared_ptr<float[]> host_data{new float[envi.bands_number *
                                        envi.lines_per_image *
                                        envi.samples_per_image]};
 
@@ -123,6 +123,11 @@ __global__ void Mean(Matrix img, Matrix mean);
  */
 __global__ void SubtractMean(Matrix img, Matrix mean);
 
+/**
+ * @brief Computes matrix multiplication of \a img with transposed \a img.
+ * @param img input matrix, \a img.data must be not nullptr
+ * @param result result of computed matrix multiplication
+ */
 __global__ void MatMulTrans(Matrix img, Matrix result);
 
 
