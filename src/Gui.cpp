@@ -95,7 +95,16 @@ GLFWwindow* CreateWindow()
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    io.Fonts->AddFontFromFileTTF("Roboto-Medium.ttf", 16.0f);
+
+    ImFontGlyphRangesBuilder builder;
+    builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+    builder.AddText(reinterpret_cast<const char *>(u8"Zażółć gęślą jaźń"));
+    builder.AddText(reinterpret_cast<const char *>(u8"ZAŻÓŁĆ GĘŚLĄ JAŹŃ"));
+    ImVector<ImWchar> ranges;
+    builder.BuildRanges(&ranges);
+
+    io.Fonts->AddFontFromFileTTF("Roboto-Medium.ttf", 16, nullptr, ranges.Data);
+    io.Fonts->Build();
 
     return window;
 }
@@ -154,7 +163,7 @@ void GuiImageWindow::Show()
         ImGui::EndCombo();
     }
 
-    if (ImGui::SliderInt("Dlugosc fali", &selected_band_, 1, image_size_.depth))
+    if (ImGui::SliderInt(reinterpret_cast<const char *>(u8"Długość fali"), &selected_band_, 1, image_size_.depth))
     {
         LoadTexture();
     }
