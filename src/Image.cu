@@ -362,3 +362,42 @@ ResultPCA PCA(std::function<std::shared_ptr<float[]>()> LoadData, uint32_t heigh
     return {.eigenvalues = {cov.height, 1, std::move(eigenvalues)},
             .eigenvectors = {cov.height, cov.width, std::move(eigenvector)}};
 }
+
+__global__ void Threshold(Matrix img, float threshold, float *mask)
+{
+    const auto x = blockIdx.x * blockDim.x + threadIdx.x;
+    const auto y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x < img.width && y < img.height)
+    {
+        const float value = img.data[y * img.width + x] > threshold ? 1.f : 0.f;
+        mask[y * img.width + x] = value;
+    }
+}
+
+CpuMatrix ManualThresholding(Matrix img, float threshold)
+{
+    LOG_INFO("Running ManualThresholding with threshold={}", threshold);
+    Matrix d_img{img.height, img.width, nullptr};
+    float *d_mask = nullptr;
+
+    CudaAssert(cudaMalloc(&d_img.data, img.height * img.width * sizeof(float)));
+    CudaAssert(cudaMalloc(&d_mask, img.height * img.width * sizeof(float)));
+
+    CudaAssert(cudaMemcpy(d_img.data, img.data, img.height * img.width * sizeof(float), cudaMemcpyHostToDevice));
+    CudaAssert(cudaMemset(d_mask, 0, img.height *  img.width * sizeof(float)));
+
+    dim3 threads_mean{32, 32};
+    dim3 blocks_mean{static_cast<unsigned int>(img.width / 32) + 1, static_cast<unsigned int>(img.height / 32) + 1};
+    Threshold<<<threads_mean, blocks_mean>>>(d_img, threshold, d_mask);
+    CudaAssert(cudaDeviceSynchronize());
+
+    float *mask = new float[img.height * img.width];
+
+    CudaAssert(cudaMemcpy(mask, d_mask, img.height * img.width * sizeof(float), cudaMemcpyDeviceToHost));
+
+    CudaAssert(cudaFree(d_img.data));
+    CudaAssert(cudaFree(d_mask));
+
+    return {img.width, img.height, std::unique_ptr<float[]>{mask}};
+}

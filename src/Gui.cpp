@@ -109,8 +109,6 @@ GLFWwindow* CreateWindow()
     return window;
 }
 
-
-
 GuiImageWindow* RegisterGuiImageWindow()
 {
     auto *img_window_sys = coordinator.RegisterSystem<GuiImageWindow>();
@@ -125,24 +123,40 @@ GuiImageWindow* RegisterGuiImageWindow()
 }
 
 
-void GuiImageWindow::LoadImage()
+void LoadOpenGLTexture(float *data, ImageSize size, GLuint texture, std::size_t selected_band)
 {
-    assert(entities_.contains(selected_));
+    const auto band_offset = (selected_band - 1) * size.width * size.height;
+    LoadTextureGrayF32(texture, size.width, size.height, data + band_offset);
+}
 
-    image_size_ = coordinator.GetComponent<ImageSize>(selected_);
-    image_data_ = GetImageData(selected_);
+
+void GuiImage::LoadImage(Entity entity)
+{
+    loaded_entity_ = entity;
+
+    image_size_ = coordinator.GetComponent<ImageSize>(loaded_entity_);
+    image_data_ = GetImageData(loaded_entity_);
     selected_band_ = 1;
 }
 
-void GuiImageWindow::LoadTexture()
+void GuiImage::LoadBandToTexture() const
 {
-    const auto band_offset = (selected_band_ - 1) * image_size_.width * image_size_.height;
-    LoadTextureGrayF32(texture, image_size_.width, image_size_.height, image_data_.get() + band_offset);
+    assert(image_data_ != nullptr);
+    assert(selected_band_ <= image_size_.depth);
+
+    LoadOpenGLTexture(image_data_.get(), image_size_, texture_, selected_band_);
 }
+
+
+GuiImage::~GuiImage()
+{
+    DeleteTexture(texture_);
+}
+
 
 void GuiImageWindow::Show()
 {
-    ImGui::Begin("Image");
+    ImGui::Begin("Obraz");
 
     if (ImGui::BeginCombo("Obrazy", name_.c_str()))
     {
@@ -150,25 +164,223 @@ void GuiImageWindow::Show()
         {
             ImGui::PushID(reinterpret_cast<void*>(entity));
             auto name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
-            if (ImGui::Selectable(name.c_str(), entity == selected_))
+            if (ImGui::Selectable(name.c_str(), entity == loaded_entity_))
             {
-                selected_ = entity;
                 name_ = name;
                 selected_band_ = 1;
-                LoadImage();
-                LoadTexture();
+                LoadImage(entity);
+                LoadBandToTexture();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+
+    if (ImGui::Button("Wybierz folder"))
+    {
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        ImGui::OpenPopup(reinterpret_cast<const char *>(u8"Eksplorator plików"));
+    }
+
+    if (ImGui::BeginPopupModal(reinterpret_cast<const char *>(u8"Eksplorator plików"), NULL, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("All those beautiful files will be deleted.\nThis operation cannot be undone!");
+        ImGui::Separator();
+
+        //static int unused_i = 0;
+        //ImGui::Combo("Combo", &unused_i, "Delete\0Delete harder\0");
+
+        static bool dont_ask_me_next_time = false;
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+        ImGui::Checkbox("Don't ask me next time", &dont_ask_me_next_time);
+        ImGui::PopStyleVar();
+
+        if (ImGui::Button("OK", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) { ImGui::CloseCurrentPopup(); }
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::SliderInt(reinterpret_cast<const char *>(u8"Długość fali"), &selected_band_, 1, image_size_.depth))
+    {
+        LoadBandToTexture();
+    }
+
+    ImGui::Image((ImTextureID)(intptr_t)texture_, ImVec2(image_size_.width * 2, image_size_.height * 2));
+
+    ImGui::End();
+}
+
+void GuiThreshold::Show()
+{
+    ImGui::Begin("Progowanie");
+
+    if (ImGui::BeginCombo("Obraz", name_.c_str()))
+    {
+        for (const auto entity : entities_)
+        {
+            ImGui::PushID(reinterpret_cast<void*>(entity));
+            auto name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
+            if (ImGui::Selectable(name.c_str(), entity == loaded_entity_))
+            {
+                name_ = name;
+                selected_band_ = 1;
+                LoadImage(entity);
+                LoadBandToTexture();
+                show_threshold_ = false;
             }
             ImGui::PopID();
         }
         ImGui::EndCombo();
     }
 
-    if (ImGui::SliderInt(reinterpret_cast<const char *>(u8"Długość fali"), &selected_band_, 1, image_size_.depth))
+    ImGui::InputFloat(reinterpret_cast<const char *>(u8"Próg"), &threshold, 0.01f, 1.f);
+
+    // ImGui::SameLine();
+
+
+    if (ImGui::SliderInt(reinterpret_cast<const char *>(u8"Pasmo"), &selected_band_, 1, image_size_.depth))
     {
-        LoadTexture();
+        LoadBandToTexture();
     }
 
-    ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(image_size_.width * 2, image_size_.height * 2));
+    if (ImGui::Button("Uruchom progowanie", ImVec2(120, 0)) && !name_.empty())
+    {
+        const int band_offset = (selected_band_ - 1) * image_size_.width * image_size_.height;
+
+        Matrix img{image_size_.height, image_size_.width, image_data_.get() + band_offset};
+
+        auto [height, width, data] = ManualThresholding(img, threshold);
+        LoadOpenGLTexture(data.get(), image_size_, threshold_texture_, 1);
+        show_threshold_ = true;
+
+    }
+
+    ImGui::Image((ImTextureID)(intptr_t)texture_, ImVec2(image_size_.width * 2, image_size_.height * 2));
+
+    if (show_threshold_)
+    {
+        ImGui::SameLine();
+        ImGui::Image((ImTextureID)(intptr_t)threshold_texture_, ImVec2(image_size_.width * 2, image_size_.height * 2));
+    }
+
 
     ImGui::End();
 }
+
+GuiThreshold* RegisterGuiThreshold()
+{
+    auto *window = coordinator.RegisterSystem<GuiThreshold>();
+
+    Attributes attributes{};
+    attributes.set(coordinator.GetComponentType<FilesystemPaths>());
+    attributes.set(coordinator.GetComponentType<ImageSize>());
+
+    coordinator.SetSystemAttribute<GuiThreshold>(attributes);
+
+    return window;
+}
+
+void PCAWindow::Show()
+{
+    ImGui::Begin("PCA");
+
+
+    if (ImGui::Button("Run PCA"))
+    {
+        auto get_data = [=, i=0]() mutable -> std::shared_ptr<float[]> {
+            return GetImageData(*std::next(to_calculate_.begin(), i++));
+        };
+
+        const auto height = selected_size_.width * selected_size_.height;
+        const auto width = selected_size_.depth;
+
+        pca_entity_ = to_calculate_;
+
+        LOG_INFO("PCAWindow: started pca!");
+        // TODO: run in std::async!
+        const auto pca_result = PCA(get_data, height, width, to_calculate_.size());
+    }
+
+    {
+        static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+        static int freeze_cols = 1;
+        static int freeze_rows = 1;
+
+        ImVec2 outer_size = ImVec2(0.0f, 16 * 8);
+        if (ImGui::BeginTable("table_scrollx", 3, flags, outer_size))
+        {
+            ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
+            ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_NoHide);
+            ImGui::TableSetupColumn("Nazwa");
+            ImGui::TableSetupColumn("Wybierz");
+            ImGui::TableHeadersRow();
+            for (int row = 0; row < entities_.size(); row++)
+            {
+                auto entity_iter = std::next(entities_.begin(), row);
+                auto file_name = coordinator.GetComponent<FilesystemPaths>(*entity_iter).img_data.filename().string();
+
+                ImGui::TableNextRow();
+
+                if (!ImGui::TableSetColumnIndex(0))
+                    continue;
+                ImGui::Text("%d", row);
+
+                if (!ImGui::TableSetColumnIndex(1))
+                    continue;
+                ImGui::Text(file_name.c_str());
+
+                if (!ImGui::TableSetColumnIndex(2))
+                    continue;
+
+                bool is_enabled = to_calculate_.contains(*entity_iter);
+
+                ImGui::PushID(row);
+                if (ImGui::Checkbox("", &is_enabled) && is_enabled)
+                {
+                    to_calculate_.insert(*entity_iter);
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        ImGui::Spacing();
+    }
+
+    if (ImGui::BeginCombo(reinterpret_cast<const char *>(u8"Wyświetl"), name_.c_str()))
+    {
+        for (const auto entity : pca_entity_)
+        {
+            ImGui::PushID(reinterpret_cast<void*>(entity));
+            auto name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
+            if (ImGui::Selectable(name.c_str(), entity == loaded_entity_))
+            {
+                // TODO: add orginal image and projected from pca
+                // selected_ = entity;
+                // name_ = name;
+                // selected_band_ = 1;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::End();
+}
+
+PCAWindow* RegisterPCAWindow()
+{
+    auto *window = coordinator.RegisterSystem<PCAWindow>();
+
+    Attributes attributes{};
+    attributes.set(coordinator.GetComponentType<FilesystemPaths>());
+    attributes.set(coordinator.GetComponentType<ImageSize>());
+
+    coordinator.SetSystemAttribute<GuiImageWindow>(attributes);
+
+    return window;
+}
+

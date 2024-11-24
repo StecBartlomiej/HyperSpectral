@@ -162,4 +162,8 @@ struct ResultPCA
 */
 [[nodiscard]] ResultPCA PCA(std::function<std::shared_ptr<float[]>()> LoadData, uint32_t height, uint32_t width, std::size_t data_count);
 
+
+[[nodsicard]] CpuMatrix ManualThresholding(Matrix img, float threshold);
+
+
 #endif //HYPERSPECTRAL_IMAGE_HPP

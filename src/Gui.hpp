@@ -20,26 +20,67 @@ void DeleteTexture(GLuint texture);
 
 void LoadTextureGrayF32(GLuint texture,uint32_t width, uint32_t height, const float* data);
 
+class GuiImage
+{
+public:
+    void LoadImage(Entity entity);
 
-class GuiImageWindow final: public System
+    void LoadBandToTexture() const;
+
+    ~GuiImage();
+
+protected:
+    Entity loaded_entity_{};
+    GLuint texture_ = CreateTexture();
+    ImageSize image_size_{0, 0, 1};
+    std::shared_ptr<float[]> image_data_;
+    int selected_band_ = 1;
+};
+
+
+class GuiImageWindow final: public System, public GuiImage
 {
 public:
     void Show();
 
-    void LoadImage();
-
-    void LoadTexture();
-
 private:
-    Entity selected_{};
-    GLuint texture = CreateTexture();
-    int selected_band_ = 1;
     std::string name_{};
-    ImageSize image_size_{0, 0, 1};
-    std::shared_ptr<float[]> image_data_;
 };
 
 [[nodiscard]] GuiImageWindow* RegisterGuiImageWindow();
+
+void LoadOpenGLTexture(float *data, ImageSize size, GLuint texture, std::size_t selected_band);
+
+
+
+class GuiThreshold final: public System, public GuiImage
+{
+public:
+    void Show();
+
+private:
+    float threshold = 0.f;
+    GLuint threshold_texture_ = CreateTexture();
+    std::string name_{};
+    bool show_threshold_ = false;
+};
+
+[[nodiscard]] GuiThreshold* RegisterGuiThreshold();
+
+// Requires only filesystem paths
+class PCAWindow final: public System, public GuiImage
+{
+public:
+    void Show();
+
+private:
+    std::set<Entity> pca_entity_{};
+    std::set<Entity> to_calculate_{};
+    std::string name_{};
+    ImageSize selected_size_{0, 0, 1};
+};
+
+[[nodiscard]] PCAWindow* RegisterPCAWindow();
 
 
 #endif //GUI_HPP

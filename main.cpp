@@ -16,6 +16,8 @@ int main()
 
     RegisterComponents();
     auto *image_window_sys = RegisterGuiImageWindow();
+    auto *pca_window_sys = RegisterPCAWindow();
+    auto *threshold_window_sys = RegisterGuiThreshold();
 
     auto img_1 = CreateImage(
         FilesystemPaths{
@@ -47,11 +49,16 @@ int main()
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
 
         image_window_sys->Show();
+        threshold_window_sys->Show();
+        pca_window_sys->Show();
+
 
         // Rendering
         ImGui::Render();

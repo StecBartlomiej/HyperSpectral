@@ -17,6 +17,8 @@ struct ImageSize
     uint32_t depth;
 };
 
+[[nodiscard]] bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept;
+
 void RegisterComponents();
 
 

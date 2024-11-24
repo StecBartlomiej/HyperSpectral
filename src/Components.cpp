@@ -7,6 +7,11 @@
 extern Coordinator coordinator;
 
 
+bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept
+{
+    return lhs.width == rhs.width && lhs.height == rhs.height && lhs.depth == rhs.depth;
+}
+
 void RegisterComponents()
 {
     coordinator.RegisterComponent<FilesystemPaths>();
