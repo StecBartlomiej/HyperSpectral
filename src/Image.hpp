@@ -107,8 +107,8 @@ inline void CusolverAssert(cusolverStatus_t code, bool abort=true)
 */
 struct Matrix
 {
-    std::size_t height;
-    std::size_t width;
+    std::size_t bands_height;
+    std::size_t pixels_width;
     float *data;
 };
 
@@ -120,11 +120,10 @@ struct CpuMatrix
 };
 
 /**
- * @brief Calculates mean of each \a M = \a img.height and \a N = \a img.width:
- * \f[ m = \frac{1}{M} \sum_{i=1}^M [x_1 x_2 .. x_n]^T \f]
+ * @brief Calculates mean of each band
  *
  * @param img input matrix.
- * @param mean matrix of computed means with \a mean.height = 1 and \a mean.width = \a img.width.
+ * @param mean matrix of computed means with \a mean.height = img.height and \a mean.width = \a 1
  * @return mean
  */
 __global__ void Mean(Matrix img, Matrix mean);
@@ -132,7 +131,7 @@ __global__ void Mean(Matrix img, Matrix mean);
 /**
  * @brief Subtracts \a mean values from \a img in place.
  * @param img input matrix, write result of substract to \a img.data
- * @param mean input matrix, with size \a mean.heigth = 1, \a mean.width = \a img.width.
+ * @param mean input matrix, with size \a mean.heigth = img.height, \a mean.width = \a 1
  * @return img
  */
 __global__ void SubtractMean(Matrix img, Matrix mean);
@@ -143,7 +142,7 @@ __global__ void SubtractMean(Matrix img, Matrix mean);
  * @param result result of computed matrix multiplication
  * @param data_count count of images that will be processed
  */
-__global__ void MatMulTrans(Matrix img, Matrix result, int data_count);
+__global__ void MatMulTrans(Matrix img, Matrix result);
 
 
 struct ResultPCA
@@ -151,6 +150,9 @@ struct ResultPCA
     CpuMatrix eigenvalues;
     CpuMatrix eigenvectors;
 };
+
+[[nodiscard]] Matrix CovarianceMatrix(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData,
+                                      uint32_t height, uint32_t width, std::size_t data_count);
 
 /**
 * @brief performs PCA
@@ -160,7 +162,7 @@ struct ResultPCA
 * @param data_count count of input data
 * @result returns eigenvalues sorted in ascending order and eigenvectors
 */
-[[nodiscard]] ResultPCA PCA(std::function<std::shared_ptr<float[]>()> LoadData, uint32_t height, uint32_t width, std::size_t data_count);
+[[nodiscard]] ResultPCA PCA(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData, uint32_t height, uint32_t width, std::size_t data_count);
 
 
 [[nodsicard]] CpuMatrix ManualThresholding(Matrix img, float threshold);
