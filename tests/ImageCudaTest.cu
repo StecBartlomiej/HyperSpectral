@@ -165,9 +165,10 @@ TEST_CASE("Covariance matrix", "[CUDA]")
                                              9, 10, 11, 12}};
 
     float covariance[3 * 3] = {0};
+    CpuMatrix cpu_matrix{.size = {.width = 4, .height = 1, .depth = 3}, .data = arr};
 
-    auto LoadFunction = [&](std::size_t i) -> std::shared_ptr<float[]> {
-        return arr;
+    auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
+        return cpu_matrix;
     };
 
     Matrix cov = CovarianceMatrix(LoadFunction, 3, 4, 1);
@@ -196,8 +197,10 @@ TEST_CASE("Covariance square matrix", "[CUDA]")
 
     float covariance[9] = {0};
 
-    auto LoadFunction = [&](std::size_t i) -> std::shared_ptr<float[]> {
-        return arr;
+    CpuMatrix cpu_matrix{.size = {.width = 3, .height = 1, .depth = 3}, .data = arr};
+
+    auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
+        return cpu_matrix;
     };
 
     Matrix cov = CovarianceMatrix(LoadFunction, 3, 3, 1);
@@ -237,8 +240,10 @@ TEST_CASE("Covariance larger matrix", "[CUDA]")
 
     float covariance[height * height] = {0};
 
-    auto LoadFunction = [&](std::size_t i) -> std::shared_ptr<float[]> {
-        return arr;
+    CpuMatrix cpu_matrix{.size = {.width = 8, .height = 1, .depth = 12}, .data = arr};
+
+    auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
+        return cpu_matrix;
     };
 
     Matrix cov = CovarianceMatrix(LoadFunction, height, width, 1);
@@ -280,12 +285,17 @@ TEST_CASE("Covariance two input data", "[CUDA]")
                                             0.3171, 0.4387, 0.7952, 0.4456,
                                             0.9502, 0.3816, 0.1869, 0.6463}};
 
-    std::vector<std::shared_ptr<float[]>> data = {std::move(d1), std::move(d2)};
-    auto LoadData = [=](std::size_t i) -> std::shared_ptr<float[]> { return data[i]; };
+    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .depth = 3}, .data = d1};
+    CpuMatrix cpu_matrix_2{.size = {.width = 4, .height = 1, .depth = 3}, .data = d2};
+
+    std::vector<CpuMatrix> vec_matrix = {cpu_matrix_1, cpu_matrix_2};
+    auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
+        return vec_matrix[i];
+    };
 
     float covariance[9] = {0};
 
-    Matrix cov = CovarianceMatrix(LoadData, 3, 4, 2);
+    Matrix cov = CovarianceMatrix(LoadFunction, 3, 4, 2);
 
     CudaAssert(cudaMemcpy(covariance, cov.data, 9 * sizeof(float), cudaMemcpyDeviceToHost));
     CudaAssert(cudaFree(cov.data));
@@ -313,10 +323,15 @@ TEST_CASE("PCA", "[CUDA]")
                                             0.3171, 0.4387, 0.7952, 0.4456,
                                             0.9502, 0.3816, 0.1869, 0.6463}};
 
-    std::vector<std::shared_ptr<float[]>> data = {std::move(d1), std::move(d2)};
-    auto LoadData = [=](std::size_t i) -> std::shared_ptr<float[]> { return data[i]; };
+    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .depth = 3}, .data = d1};
+    CpuMatrix cpu_matrix_2{.size = {.width = 4, .height = 1, .depth = 3}, .data = d2};
 
-    ResultPCA result = PCA(LoadData, 3, 4, 2);
+    std::vector<CpuMatrix> vec_matrix = {cpu_matrix_1, cpu_matrix_2};
+    auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
+        return vec_matrix[i];
+    };
+
+    ResultPCA result = PCA(LoadFunction, 3, 4, 2);
 
     constexpr std::array<float, 3> eigenvalues = {0.0463, 0.0727, 0.1109};
 
@@ -326,3 +341,92 @@ TEST_CASE("PCA", "[CUDA]")
     }
 }
 
+// TEST_CASE("AddNeighboursBand", "[CUDA]")
+// {
+//
+//     int data[9 * 2] = {1, 2, 3,}
+//
+//     std::vector<std::shared_ptr<float[]>> data = {std::move(d1), std::move(d2)};
+//     auto LoadData = [=, i=0]() mutable ->std::shared_ptr<float[]>{ return data[i++]; };
+//
+//     ResultPCA result = PCA(LoadData, 3, 4, 2);
+//
+//     constexpr std::array<float, 4> eigenvalues = {0.0021, 0.0237, 0.0769, 0.1120};
+//
+//     for (int i = 0; i < 4; ++i)
+//     {
+//         REQUIRE_THAT(eigenvalues[i], Catch::Matchers::WithinRel(result.eigenvalues.data[i], 0.01f));
+//     }
+// }
+
+TEST_CASE("GetObjectFromMask", "[CUDA]")
+{
+    float data[3 * 2] = {1, 2, 3,
+                         4, 5, 6};
+
+    float m[3] = {1, 0, 1};
+
+    Matrix img{2, 3, data};
+    Matrix mask{1, 3, m};
+
+    CpuMatrix c_new_img = GetObjectFromMask(img, mask);
+
+    float result[4] = {1, 3, 4, 6};
+
+    REQUIRE(c_new_img.size.height * c_new_img.size.width == 2);
+    REQUIRE(c_new_img.size.depth == img.bands_height);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        REQUIRE(c_new_img.data[i] == result[i]);
+    }
+
+}
+
+TEST_CASE("Thresholding", "[CUDA]")
+{
+    float data[3 * 2] = {1, 2, 3,
+                         4, 5, 6};
+
+    Matrix img{2, 3, data};
+
+    auto cpu_matrix = ManualThresholding(img, 1, 4);
+    float mask_result[3] = {0, 1, 1};
+
+    assert(cpu_matrix.size.width == 3);
+    assert(cpu_matrix.size.height == 1);
+    assert(cpu_matrix.size.depth  == 1);
+
+    for (int i = 0; i < 3; ++i)
+    {
+        REQUIRE(cpu_matrix.data[i] == mask_result[i]);
+    }
+}
+
+TEST_CASE("Thresholding + PCA", "[CUDA]")
+{
+    float data[3 * 2] = {3, 10, -1,
+                         100, 7, 6};
+
+    Matrix img{2, 3, data};
+
+    auto cpu_mask = ManualThresholding(img, 0, 2.f);
+
+    Matrix mask = cpu_mask.GetMatrix();
+    float mask_result[3] = {1, 1, 0};
+    for (auto i = 0; i < 3; ++i)
+    {
+        REQUIRE(cpu_mask.data[i] == mask_result[i]);
+    }
+
+    auto LoadData = [&](std::size_t i) -> CpuMatrix {
+        return GetObjectFromMask(img, mask);;
+    };
+
+    auto pca_result = PCA(LoadData, 2, 3, 1);
+
+    for (int i = 0; i < 2; ++i)
+    {
+        printf("%f ", pca_result.eigenvalues.data[i]);
+    }
+}

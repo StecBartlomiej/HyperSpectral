@@ -134,8 +134,12 @@ void GuiImage::LoadImage(Entity entity)
 {
     loaded_entity_ = entity;
 
-    image_size_ = coordinator.GetComponent<ImageSize>(loaded_entity_);
-    image_data_ = GetImageData(loaded_entity_);
+    auto cpu_matrix = GetImageData(loaded_entity_);
+    assert(cpu_matrix.data != nullptr);
+
+    image_data_ = cpu_matrix.data;
+    image_size_ = cpu_matrix.size;
+
     selected_band_ = 1;
 }
 
@@ -252,10 +256,12 @@ void GuiThreshold::Show()
     {
         const int band_offset = (selected_band_ - 1) * image_size_.width * image_size_.height;
 
-        Matrix img{image_size_.height, image_size_.width, image_data_.get() + band_offset};
+        Matrix img{1, image_size_.height * image_size_.width, image_data_.get() + band_offset};
 
-        auto [height, width, data] = ManualThresholding(img, threshold);
-        LoadOpenGLTexture(data.get(), image_size_, threshold_texture_, 1);
+        auto [_size, data] = ManualThresholding(img, 0, threshold); // Passes only selected band so threshold on 0
+
+        ImageSize band0 = {.width = image_size_.width, .height = image_size_.height, .depth = 1};
+        LoadOpenGLTexture(data.get(), band0, threshold_texture_, 1);
         show_threshold_ = true;
 
     }
@@ -293,7 +299,7 @@ void PCAWindow::Show()
     if (ImGui::Button("Run PCA"))
     {
         auto get_data = [=, i=0]() mutable -> std::shared_ptr<float[]> {
-            return GetImageData(*std::next(to_calculate_.begin(), i++));
+            return GetImageData(*std::next(to_calculate_.begin(), i++)).data;
         };
 
         const auto height = selected_size_.width * selected_size_.height;
@@ -303,7 +309,7 @@ void PCAWindow::Show()
 
         LOG_INFO("PCAWindow: started pca!");
         // TODO: run in std::async!
-        const auto pca_result = PCA(get_data, height, width, to_calculate_.size());
+        // const auto pca_result = PCA(get_data, height, width, to_calculate_.size());
     }
 
     {

@@ -42,7 +42,7 @@ extern Coordinator coordinator;
 {
     std::ifstream file{path, std::ios_base::binary | std::ios::in};
     assert(file.is_open());
-    return LoadImage(file, envi) ;
+    return LoadImage(file, envi);
 }
 
 [[nodiscard]] std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi)
@@ -77,14 +77,16 @@ extern Coordinator coordinator;
     return nullptr;
 }
 
-std::shared_ptr<float[]> GetImageData(Entity entity)
+CpuMatrix GetImageData(Entity entity)
 {
     static std::map<Entity, std::weak_ptr<float[]>> loaded_img{};
+
+    const auto &size = coordinator.GetComponent<ImageSize>(entity);
 
     const auto iter = loaded_img.find(entity);
     if (iter != loaded_img.end() && !iter->second.expired())
     {
-        return iter->second.lock();
+        return CpuMatrix{size, iter->second.lock()};
     }
 
     const auto &path = coordinator.GetComponent<FilesystemPaths>(entity).img_data;
@@ -92,7 +94,8 @@ std::shared_ptr<float[]> GetImageData(Entity entity)
 
     std::shared_ptr<float[]> ptr = LoadImage(path, envi);
     loaded_img[entity] = ptr;
-    return std::move(ptr);
+
+    return CpuMatrix{size, std::move(ptr)};
 }
 
 
@@ -100,7 +103,7 @@ void RunPCA(Entity image)
 {
     const auto img_size = coordinator.GetComponent<ImageSize>(image);
 
-    const auto data = GetImageData(image);
+    const auto data = GetImageData(image).data;
     const auto ptr = data.get();
 
     const auto N = img_size.depth;
@@ -197,6 +200,15 @@ __device__ void AddElement(const Matrix matrix, std::size_t y, std::size_t x, fl
     matrix.data[y * matrix.pixels_width + x] += value;
 }
 
+Matrix CpuMatrix::GetMatrix() const
+{
+    return Matrix{
+        .bands_height = size.depth,
+        .pixels_width = size.width * size.height,
+        .data = data.get()
+    };
+}
+
 __global__ void Mean(Matrix img, Matrix mean)
 {
     const auto y = blockIdx.x * blockDim.x + threadIdx.x;
@@ -272,28 +284,36 @@ __global__ void MatMulTrans(const Matrix img, const Matrix result)
     AddElement(result, y, x, value);
 }
 
-Matrix CovarianceMatrix(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData, uint32_t height, uint32_t width, std::size_t data_count)
+Matrix CovarianceMatrix(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_height, uint32_t max_width, std::size_t data_count)
 {
-    // pixels_width = x = pixels_width, bands_height = y = bands_height
+    // pixels_width = x = pixels_width = ImageSize.max_width * ImageSize.hegith, bands_height = y = bands_height= ImageSize.depth
 
-    auto blocking_load_img = [&, height, width](std::size_t i, float *data) {
-        const std::shared_ptr<float[]> shared_ptr = LoadData(i);
-        CudaAssert(cudaMemcpy(data, shared_ptr.get(), height * width * sizeof(float), cudaMemcpyHostToDevice));
+    auto blocking_load_img = [&, max_height, max_width](std::size_t i, Matrix &img) -> ImageSize {
+        auto [size, ptr] = LoadData(i);
+
+        img.pixels_width = size.width * size.height;
+        img.bands_height = size.depth;
+
+        assert(img.bands_height <= max_height);
+        assert(img.pixels_width <= max_width);
+
+        CudaAssert(cudaMemcpy(img.data, ptr.get(), size.height * size.width * size.depth * sizeof(float), cudaMemcpyHostToDevice));
+        return size;
     };
 
-    Matrix img{height, width, nullptr};
-    Matrix mean{height, 1, nullptr};
-    Matrix cov{height, height, nullptr};
+    Matrix img{0, 0, nullptr};
+    Matrix mean{max_height, 1, nullptr};
+    Matrix cov{max_height, max_height, nullptr};
 
-    float *d_to_copy = nullptr;
+    Matrix img_to_copy{0, 0, nullptr};
 
-    CudaAssert(cudaMalloc(&img.data, height * width * sizeof(float)));
-    CudaAssert(cudaMalloc(&d_to_copy, height * width * sizeof(float)));
-    CudaAssert(cudaMalloc(&mean.data, height * sizeof(float)));
-    CudaAssert(cudaMalloc(&cov.data, height * height * sizeof(float)));
+    CudaAssert(cudaMalloc(&img.data, max_height * max_width * sizeof(float)));
+    CudaAssert(cudaMalloc(&img_to_copy.data, max_height * max_width * sizeof(float)));
+    CudaAssert(cudaMalloc(&mean.data, max_height * sizeof(float)));
+    CudaAssert(cudaMalloc(&cov.data, max_height * max_height * sizeof(float)));
 
-    CudaAssert(cudaMemset(mean.data, 0, height * sizeof(float)));
-    CudaAssert(cudaMemset(cov.data, 0, height * height * sizeof(float)));
+    CudaAssert(cudaMemset(mean.data, 0, max_height * sizeof(float)));
+    CudaAssert(cudaMemset(cov.data, 0, max_height * max_height * sizeof(float)));
 
 
     cudaStream_t stream1;
@@ -301,47 +321,47 @@ Matrix CovarianceMatrix(std::function<std::shared_ptr<float[]>(std::size_t)> Loa
 
 
     dim3 threads_sum{1024};
-    dim3 blocks_sum{(height / 1024) + 1};
+    dim3 blocks_sum{(max_height / 1024) + 1};
 
     dim3 threads_division{1, 1024};
-    dim3 blocks_division{1, (height / 1024) + 1};
+    dim3 blocks_division{1, (max_height / 1024) + 1};
 
     dim3 threads_division_2{32, 32};
-    dim3 blocks_division_2{(height / 32) + 1, (height / 32) + 1};
+    dim3 blocks_division_2{(max_height / 32) + 1, (max_height / 32) + 1};
 
     dim3 threads_subtract{64, 16};
-    dim3 blocks_subtract{(height / 64) + 1, (width / 16) + 1};
+    dim3 blocks_subtract{(max_height / 64) + 1, (max_width / 16) + 1};
 
     dim3 threads_matmul{64, 16};
-    dim3 blocks_matmul{(height / 64) + 1, (width / 16) + 1};
+    dim3 blocks_matmul{(max_height / 64) + 1, (max_width / 16) + 1};
 
 
-    blocking_load_img(0, img.data);
+    blocking_load_img(0, img);
     for (std::size_t i = 0; i < data_count - 1; ++i)
     {
         SumRows<<<blocks_sum, threads_sum, 0, stream1>>>(img, mean);
 
         // Load in parallel
-        blocking_load_img(i + 1, d_to_copy);
+        blocking_load_img(i + 1, img_to_copy);
 
         cudaStreamSynchronize(stream1);
-        std::swap(img.data, d_to_copy);
+        std::swap(img, img_to_copy);
     }
     SumRows<<<blocks_sum, threads_sum, 0, stream1>>>(img, mean);
     PieceWiseDivision<<<blocks_division, threads_division, 0, stream1>>>(mean, static_cast<float>(img.pixels_width * data_count));
 
 
-    blocking_load_img(0, img.data);
+    blocking_load_img(0, img);
     for (std::size_t i = 0; i < data_count - 1; ++i)
     {
         SubtractMean<<<blocks_subtract, threads_subtract, 0, stream1>>>(img, mean);
         MatMulTrans<<<blocks_matmul, threads_matmul, 0, stream1>>>(img, cov);
 
         // Load in parallel
-        blocking_load_img(i + 1, d_to_copy);
+        blocking_load_img(i + 1, img_to_copy);
 
         cudaStreamSynchronize(stream1);
-        std::swap(img.data, d_to_copy);
+        std::swap(img, img_to_copy);
     }
     SubtractMean<<<blocks_subtract, threads_subtract, 0, stream1>>>(img, mean);
     MatMulTrans<<<blocks_matmul, threads_matmul, 0, stream1>>>(img, cov);
@@ -351,22 +371,22 @@ Matrix CovarianceMatrix(std::function<std::shared_ptr<float[]>(std::size_t)> Loa
 
     CudaAssert(cudaFree(img.data));
     CudaAssert(cudaFree(mean.data));
-    CudaAssert(cudaFree(d_to_copy));
+    CudaAssert(cudaFree(img_to_copy.data));
 
     CudaAssert(cudaStreamDestroy(stream1));
 
     return cov;
 }
 
-ResultPCA PCA(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData, uint32_t height, uint32_t width, std::size_t data_count)
+ResultPCA PCA(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_height, uint32_t max_width, std::size_t data_count)
 {
     cudaStream_t stream1;
     CudaAssert(cudaStreamCreateWithFlags(&stream1, cudaStreamNonBlocking));
 
-    Matrix cov = CovarianceMatrix(LoadData, height, width, data_count);
+    Matrix cov = CovarianceMatrix(LoadData, max_height, max_width, data_count);
 
     float *d_eigenvalues = nullptr;
-    CudaAssert(cudaMalloc(&d_eigenvalues, height * sizeof(float)));
+    CudaAssert(cudaMalloc(&d_eigenvalues, max_height * sizeof(float)));
 
     // Calculate eigenvalues
     cusolverDnHandle_t handle = nullptr;
@@ -402,8 +422,8 @@ ResultPCA PCA(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData, uin
     CudaAssert(cudaFree(dev_info));
 
 
-    auto eigenvector = std::make_unique<float[]>(cov.bands_height * cov.pixels_width);
-    auto eigenvalues = std::make_unique<float[]>(cov.pixels_width);
+    auto eigenvector = std::make_shared<float[]>(cov.bands_height * cov.pixels_width);
+    auto eigenvalues = std::make_shared<float[]>(cov.pixels_width);
 
     cudaMemcpy(eigenvector.get(), cov.data, cov.bands_height * cov.pixels_width * sizeof(float), cudaMemcpyDeviceToHost);
     cudaMemcpy(eigenvalues.get(), d_eigenvalues, cov.pixels_width * sizeof(float), cudaMemcpyDeviceToHost);
@@ -416,47 +436,185 @@ ResultPCA PCA(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData, uin
 
     CudaAssert(cudaDeviceReset());
 
-    return {.eigenvalues = {cov.bands_height, 1, std::move(eigenvalues)},
-            .eigenvectors = {cov.bands_height, cov.pixels_width, std::move(eigenvector)}};
+    CpuMatrix mat_eigenvalues{
+        .size = ImageSize{
+            .width = 1,
+            .height = static_cast<uint32_t>(cov.bands_height),
+            .depth = 1},
+        .data = std::move(eigenvalues)
+    };
+    CpuMatrix mat_eigenvectors{
+        .size = ImageSize{
+            .width = static_cast<uint32_t>(cov.pixels_width),
+            .height = static_cast<uint32_t>(cov.bands_height),
+            .depth = 1},
+        .data = std::move(eigenvector)
+    };
+
+    return {.eigenvalues = mat_eigenvalues, .eigenvectors = mat_eigenvectors};
 }
 
-__global__ void Threshold(Matrix img, float threshold, float *mask)
+__global__ void Threshold(Matrix img, std::size_t band, float threshold, float *mask)
 {
     const auto x = blockIdx.x * blockDim.x + threadIdx.x;
-    const auto y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (x < img.pixels_width && y < img.bands_height)
+    if (x < img.pixels_width)
     {
-        const float value = GetElement(img, y, x) > threshold ? 1.f : 0.f;
-        mask[y * img.pixels_width + x] = value;
+        const float value = GetElement(img, band, x) > threshold ? 1.f : 0.f;
+        mask[x] = value;
     }
 }
 
-CpuMatrix ManualThresholding(Matrix img, float threshold)
+CpuMatrix ManualThresholding(Matrix img, std::size_t band, float threshold)
 {
     LOG_INFO("Running ManualThresholding with threshold={}", threshold);
     Matrix d_img{img.bands_height, img.pixels_width, nullptr};
     float *d_mask = nullptr;
 
     CudaAssert(cudaMalloc(&d_img.data, img.bands_height * img.pixels_width * sizeof(float)));
-    CudaAssert(cudaMalloc(&d_mask, img.bands_height * img.pixels_width * sizeof(float)));
+    CudaAssert(cudaMalloc(&d_mask, img.pixels_width * sizeof(float)));
 
     CudaAssert(cudaMemcpy(d_img.data, img.data, img.bands_height * img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
-    CudaAssert(cudaMemset(d_mask, 0, img.bands_height *  img.pixels_width * sizeof(float)));
+    CudaAssert(cudaMemset(d_mask, 0, img.pixels_width * sizeof(float)));
 
-    dim3 threads_mean{32, 32};
-    dim3 blocks_mean{static_cast<unsigned int>(img.pixels_width / 32) + 1, static_cast<unsigned int>(img.bands_height / 32) + 1};
-    Threshold<<<threads_mean, blocks_mean>>>(d_img, threshold, d_mask);
+    dim3 threads_mean{1024};
+    dim3 blocks_mean{static_cast<unsigned int>(img.pixels_width) / 1024 + 1};
+    Threshold<<<blocks_mean, threads_mean>>>(d_img, band, threshold, d_mask);
     CudaAssert(cudaDeviceSynchronize());
 
-    float *mask = new float[img.bands_height * img.pixels_width];
+    std::shared_ptr<float[]> mask{new float[img.pixels_width]};
 
-    CudaAssert(cudaMemcpy(mask, d_mask, img.bands_height * img.pixels_width * sizeof(float), cudaMemcpyDeviceToHost));
+    CudaAssert(cudaMemcpy(mask.get(), d_mask, img.pixels_width * sizeof(float), cudaMemcpyDeviceToHost));
 
     CudaAssert(cudaFree(d_img.data));
     CudaAssert(cudaFree(d_mask));
 
-    return {img.width, img.height, std::unique_ptr<float[]>{mask}};
+    ImageSize img_size = {
+        .width = static_cast<uint32_t>(img.pixels_width),
+        .height = static_cast<uint32_t>(1),
+        .depth = 1};
+
+    return {img_size, std::move(mask)};
 }
-    return {img.pixels_width, img.bands_height, std::unique_ptr<float[]>{mask}};
+
+std::size_t SumAll(Matrix img)
+{
+    return static_cast<std::size_t>(std::accumulate(img.data, img.data + img.pixels_width + img.pixels_width * (img.bands_height - 1), 0.f));
+}
+
+__global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img)
+{
+    const auto x = blockIdx.x * blockDim.x + threadIdx.x + 1;
+    const auto y = blockIdx.y * blockDim.y + threadIdx.y + 1;
+
+    if (x < old_img.pixels_width - 2 && y < old_img.bands_height - 2)
+    {
+        const auto up_left_corn = GetElement(old_img, y - 1, x - 1);
+        const auto up_center = GetElement(old_img, y, x - 1);
+        const auto up_right_corn = GetElement(old_img, y + 1, x - 1);
+
+        const auto mid_left = GetElement(old_img, y - 1, x);
+        const auto mid_center = GetElement(old_img, y, x);
+        const auto mid_right = GetElement(old_img, y + 1, x);
+
+        const auto down_left_corn = GetElement(old_img, y - 1, x + 1);
+        const auto down_center = GetElement(old_img, y, x + 1);
+        const auto down_right_corn = GetElement(old_img, y + 1, x + 1);
+
+        SetElement(new_img, y - 1, x - 1, up_left_corn);
+        SetElement(new_img, y - 1, x, up_center);
+        SetElement(new_img, y - 1, x + 1, up_right_corn);
+
+        SetElement(new_img, y, x - 1, mid_left);
+        SetElement(new_img, y, x, mid_center);
+        SetElement(new_img, y, x + 1, mid_right);
+
+        SetElement(new_img, y + 1, x - 1, down_left_corn);
+        SetElement(new_img, y + 1, x, down_center);
+        SetElement(new_img, y + 1, x + 1, down_right_corn);
+    }
+
+}
+
+Matrix AddNeighboursBand(Matrix img)
+{
+    Matrix new_img{img.bands_height, img.pixels_width * 8, nullptr};
+    Matrix old_img{img.bands_height, img.pixels_width, nullptr};
+
+    CudaAssert(cudaMalloc(&old_img.data, old_img.bands_height * old_img.pixels_width * sizeof(float)));
+    CudaAssert(cudaMalloc(&new_img.data, new_img.bands_height * new_img.pixels_width * sizeof(float)));
+
+    CudaAssert(cudaMemcpy(old_img.data, img.data, old_img.bands_height * old_img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
+
+    dim3 threads_mean{32, 32};
+    dim3 blocks_mean{static_cast<unsigned int>(old_img.bands_height / 32 + 1), static_cast<unsigned int>(old_img.pixels_width / 32 + 1)};
+    ConcatNeighboursBand<<<blocks_mean, threads_mean>>>(old_img, new_img);
+
+    cudaFree(old_img.data);
+
+    return new_img;
+}
+
+__global__ void MulImages(Matrix img, std::size_t* position, std::size_t pos_size, Matrix output)
+{
+    const auto x = blockIdx.x * blockDim.x + threadIdx.x;
+    const auto y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x < pos_size && y < img.bands_height)
+    {
+        auto pixel_pos = position[x];
+        auto value = GetElement(img, y, pixel_pos);
+        SetElement(output, y, x, value);
+    }
+}
+
+std::vector<std::size_t> PositionFromMask(Matrix mask)
+{
+    assert(mask.pixels_width > 0);
+    assert(mask.bands_height == 1);
+
+    std::vector<std::size_t> position;
+    for (std::size_t i = 0; i < mask.pixels_width; ++i)
+    {
+        if (mask.data[i] != 0)
+        {
+            position.push_back(i);
+        }
+    }
+    return position;
+}
+
+CpuMatrix GetObjectFromMask(Matrix img, Matrix mask)
+{
+    assert(img.pixels_width == mask.pixels_width);
+
+    const std::vector<std::size_t> position = PositionFromMask(mask);
+    const std::size_t pixels = position.size();
+
+    Matrix new_img{img.bands_height, pixels, nullptr};
+    std::size_t *m_pos = nullptr;
+    Matrix old_img{img.bands_height, img.pixels_width, nullptr};
+
+    CudaAssert(cudaMalloc(&old_img.data, old_img.bands_height * old_img.pixels_width * sizeof(float)));
+    CudaAssert(cudaMalloc(&m_pos, pixels * sizeof(std::size_t)));
+    CudaAssert(cudaMalloc(&new_img.data, new_img.bands_height * new_img.pixels_width * sizeof(float)));
+
+    CudaAssert(cudaMemcpy(old_img.data, img.data, old_img.bands_height * old_img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
+    CudaAssert(cudaMemcpy(m_pos, position.data(), pixels * sizeof(std::size_t), cudaMemcpyHostToDevice));
+
+    dim3 threads_mean{32, 32};
+    dim3 blocks_mean{static_cast<unsigned int>(pixels) / 32 + 1, static_cast<unsigned int>(old_img.bands_height / 32 + 1)};
+    MulImages<<<blocks_mean, threads_mean>>>(old_img, m_pos, pixels, new_img);
+
+    std::shared_ptr<float[]> cpu_ptr = std::make_shared<float[]>(new_img.bands_height * pixels);
+
+    CudaAssert(cudaMemcpy(cpu_ptr.get(), new_img.data, new_img.bands_height * pixels * sizeof(float), cudaMemcpyDeviceToHost));
+
+    cudaFree(old_img.data);
+    cudaFree(m_pos);
+    cudaFree(new_img.data);
+
+    ImageSize size{1, static_cast<uint32_t>(new_img.pixels_width), static_cast<uint32_t>(new_img.bands_height)};
+
+    return {size, std::move(cpu_ptr)};
 }

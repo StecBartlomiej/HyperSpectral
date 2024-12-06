@@ -12,6 +12,7 @@
 #include <cusolverDn.h>
 #include <fstream>
 
+struct CpuMatrix;
 
 [[nodiscard]] Entity CreateImage(const FilesystemPaths &paths);
 
@@ -19,7 +20,7 @@
 
 [[nodiscard]] std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi);
 
-[[nodiscard]] std::shared_ptr<float[]> GetImageData(Entity entity);
+[[nodiscard]] CpuMatrix GetImageData(Entity entity);
 
 
 void RunPCA(Entity image);
@@ -100,6 +101,7 @@ inline void CusolverAssert(cusolverStatus_t code, bool abort=true)
     }
 }
 
+
 /**
 * @param height first dimension of matrix
 * @param width second dimension of matrix
@@ -114,10 +116,12 @@ struct Matrix
 
 struct CpuMatrix
 {
-    std::size_t height;
-    std::size_t width;
-    std::unique_ptr<float[]> data;
+    ImageSize size;
+    std::shared_ptr<float[]> data;
+
+    Matrix GetMatrix() const;
 };
+
 
 /**
  * @brief Calculates mean of each band
@@ -136,6 +140,12 @@ __global__ void Mean(Matrix img, Matrix mean);
  */
 __global__ void SubtractMean(Matrix img, Matrix mean);
 
+
+/**
+ * @brief Performs piecewise division of values in matrix
+ */
+__global__ void PieceWiseDivision(Matrix m, float divisor);
+
 /**
  * @brief Computes matrix multiplication of \a img with transposed \a img.
  * @param img input matrix, \a img.data must be not nullptr
@@ -151,21 +161,40 @@ struct ResultPCA
     CpuMatrix eigenvectors;
 };
 
-[[nodiscard]] Matrix CovarianceMatrix(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData,
-                                      uint32_t height, uint32_t width, std::size_t data_count);
+/**
+* @brief Calculates covariance matrix of input. Width of input matrix must be observations(pixels) and height
+* variables.
+*
+* @param LoadData function returning ptr to image data accessed by idx, must be of size \a height times \a width, and contain at least
+* \a data_count of images.
+* @param max_height number of bands in one image.
+* @param max_width number of pixels in one image.
+* @param data_count number of input images
+* @return Matrix with size \a height times \a height. Ptr is allocated on device memory and must be freed manually using cudaFree()!
+*/
+[[nodiscard]] Matrix CovarianceMatrix(std::function<CpuMatrix(std::size_t)> LoadData,
+                                      uint32_t max_height, uint32_t max_width, std::size_t data_count);
 
 /**
 * @brief performs PCA
 * @param LoadData function returning \a data_count 2d flatten arrays with size \a hegith * \a width
-* @param height hegith of 2d flatten array
-* @param width width of 2d flatten array
-* @param data_count count of input data
+* @param max_height number of bands in one image.
+* @param max_width number of pixel in one image.
+* @param data_count number of input images.
 * @result returns eigenvalues sorted in ascending order and eigenvectors
 */
-[[nodiscard]] ResultPCA PCA(std::function<std::shared_ptr<float[]>(std::size_t)> LoadData, uint32_t height, uint32_t width, std::size_t data_count);
+[[nodiscard]] ResultPCA PCA(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_height, uint32_t max_width, std::size_t data_count);
 
 
-[[nodsicard]] CpuMatrix ManualThresholding(Matrix img, float threshold);
+[[nodsicard]] CpuMatrix ManualThresholding(Matrix img, std::size_t band, float threshold);
+
+[[nodiscard]] std::size_t SumAll(Matrix img);
+
+__global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img);
+
+[[nodiscard]] Matrix AddNeighboursBand(Matrix img);
+
+[[nodiscard]] CpuMatrix GetObjectFromMask(Matrix img, Matrix mask);
 
 
 #endif //HYPERSPECTRAL_IMAGE_HPP
