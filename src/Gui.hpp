@@ -3,6 +3,7 @@
 
 #include "Components.hpp"
 #include "EntityComponentSystem.hpp"
+#include "Image.hpp"
 
 #include <glad/gl.h>
 
@@ -81,6 +82,75 @@ private:
 };
 
 [[nodiscard]] PCAWindow* RegisterPCAWindow();
+
+
+[[nodiscard]] PCAWindow* RegisterPCAWindow();
+
+struct HasNameSystem: public System
+{
+};
+
+[[nodiscard]] HasNameSystem* RegisterHasNameSystem();
+
+
+class Image
+{
+public:
+    ~Image() { DeleteTexture(texture_); };
+
+    void LoadImage(CpuMatrix matrix);
+
+    void SetBand(uint32_t band);
+
+    void Show(float x_scale = 1, float y_scale = 1) const;
+
+    [[nodiscard]] ImageSize GetImageSize() const { return image_size_; }
+
+    void Clear();
+
+    [[nodiscard]] auto GetImageData() const { return image_data_; };
+
+private:
+    GLuint texture_ = CreateTexture();
+    ImageSize image_size_{0, 0, 1};
+    std::shared_ptr<float[]> image_data_;
+    uint32_t selected_band_ = 1;
+};
+
+
+class ThresholdWindow final
+{
+public:
+    void Show();
+
+    void LoadEntity(Entity entity);
+
+    void RunThreshold();
+
+    [[nodiscard]] CpuMatrix GetThresholdMask() const;
+
+    [[nodiscard]] auto LoadedEntity() const -> std::optional<Entity> { return loaded_entity_; }
+
+private:
+    std::optional<Entity> loaded_entity_{std::nullopt};
+    Image original_img_;
+    Image threshold_img_;
+    ImageSize img_size_{0, 0, 1};
+};
+
+
+class MainWindow
+{
+public:
+    MainWindow(HasNameSystem* has_name_system): has_name_system_{has_name_system} {}
+
+    void Show();
+
+private:
+    ThresholdWindow threshold_window_{};
+    std::string selected_img_name_ = "";
+    HasNameSystem *has_name_system_;
+};
 
 
 #endif //GUI_HPP

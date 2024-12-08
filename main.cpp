@@ -18,6 +18,7 @@ int main()
     auto *image_window_sys = RegisterGuiImageWindow();
     auto *pca_window_sys = RegisterPCAWindow();
     auto *threshold_window_sys = RegisterGuiThreshold();
+    auto *has_name_sys = RegisterHasNameSystem();
 
     auto img_1 = CreateImage(
         FilesystemPaths{
@@ -33,6 +34,8 @@ int main()
 
     bool show_demo_window = true;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+
+    MainWindow main_window{has_name_sys};
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -58,6 +61,8 @@ int main()
         image_window_sys->Show();
         threshold_window_sys->Show();
         pca_window_sys->Show();
+
+        main_window.Show();
 
 
         // Rendering

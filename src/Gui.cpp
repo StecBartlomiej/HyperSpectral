@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <map>
+#include <chrono>
 
 
 extern Coordinator coordinator;
@@ -313,7 +314,9 @@ void PCAWindow::Show()
     }
 
     {
-        static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+        static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+                                       ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable |
+                                       ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
         static int freeze_cols = 1;
         static int freeze_rows = 1;
 
@@ -389,4 +392,177 @@ PCAWindow* RegisterPCAWindow()
 
     return window;
 }
+
+HasNameSystem* RegisterHasNameSystem()
+{
+    auto *sys = coordinator.RegisterSystem<HasNameSystem>();
+
+    Attributes attributes{};
+    attributes.set(coordinator.GetComponentType<FilesystemPaths>());
+
+    coordinator.SetSystemAttribute<HasNameSystem>(attributes);
+
+    return sys;
+}
+
+
+void Image::LoadImage(CpuMatrix matrix)
+{
+    assert(matrix.data != nullptr);
+
+    image_data_ = matrix.data;
+    image_size_ = matrix.size;
+
+    selected_band_ = 1;
+
+    LoadOpenGLTexture(image_data_.get(), image_size_, texture_, selected_band_);
+}
+
+void Image::SetBand(uint32_t band)
+{
+    assert(band >= 1 && band <= image_size_.depth);
+    selected_band_ = band;
+    LoadOpenGLTexture(image_data_.get(), image_size_, texture_, selected_band_);
+}
+
+void Image::Show(float x_scale, float y_scale) const
+{
+    ImGui::Image((ImTextureID)(intptr_t)texture_, ImVec2(image_size_.width * x_scale, image_size_.height * y_scale));
+}
+
+void Image::Clear()
+{
+    DeleteTexture(texture_);
+    texture_ = CreateTexture();
+}
+
+
+void ThresholdWindow::Show()
+{
+    ImGui::Text("Skala");
+
+    static int slider_value = 1;
+    if (ImGui::SliderInt("Pasmo",  &slider_value, 1, img_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+    {
+        original_img_.SetBand(slider_value);
+    }
+
+    original_img_.Show();
+    ImGui::SameLine(0, 10);
+    threshold_img_.Show();
+
+}
+
+void ThresholdWindow::LoadEntity(Entity entity)
+{
+    auto cpu_matrix = GetImageData(entity);
+
+    img_size_ = cpu_matrix.size;
+    original_img_.LoadImage(cpu_matrix);
+    threshold_img_.Clear();
+    loaded_entity_ = entity;
+}
+
+void ThresholdWindow::RunThreshold()
+{
+    //
+    const float threshold = 0.03;
+    const std::size_t threshold_band = 1;
+
+    const auto pixels_width = img_size_.width * img_size_.height;
+    const auto data = original_img_.GetImageData().get() + pixels_width * threshold_band;
+
+    Matrix img{.bands_height = 1, .pixels_width = pixels_width, .data = data};
+    auto mask = ManualThresholding(img, 0, threshold);
+
+    mask.size.height = img_size_.height;
+    mask.size.width = img_size_.width;
+    mask.size.depth = 1;
+
+    threshold_img_.LoadImage(mask);
+}
+
+CpuMatrix ThresholdWindow::GetThresholdMask() const
+{
+    auto ptr = threshold_img_.GetImageData();
+
+    ImageSize mask_size{.width = img_size_.width, .height = img_size_.height, .depth =  1};
+    return {mask_size, std::move(ptr)};
+}
+
+void MainWindow::Show()
+{
+    ImGui::Begin("Ustawienia");
+
+    ImGui::Button("Ustawienia");
+    if (ImGui::BeginCombo("Wybierz obraz", selected_img_name_.c_str()))
+    {
+        for (const auto entity : has_name_system_->entities_)
+        {
+            ImGui::PushID(reinterpret_cast<void*>(entity));
+            auto name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
+
+            if (ImGui::Selectable(name.c_str(), entity == threshold_window_.LoadedEntity().value_or(-1)))
+            {
+                selected_img_name_= name;
+                threshold_window_.LoadEntity(entity);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndCombo();
+    }
+
+    if (ImGui::Button("Progowanie"))
+    {
+
+    }
+    ImGui::SameLine();
+    ImGui::Button("PCA");
+    ImGui::SameLine();
+    ImGui::Button("Klasyfikacja");
+    ImGui::SameLine();
+    if (ImGui::Button("Wszystko TEST"))
+    {
+        const auto start = std::chrono::high_resolution_clock::now();
+
+        threshold_window_.RunThreshold();
+        CpuMatrix mask = threshold_window_.GetThresholdMask();
+
+        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+        auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+
+        auto LoadData = [&](std::size_t i) -> CpuMatrix { return cpu_object; };
+        auto result_pca = PCA(LoadData,  cpu_img.size.depth, cpu_img.size.height * cpu_img.size.width, 1);
+
+        std::ostringstream oss;
+        for (std::size_t i = 0; i < result_pca.eigenvalues.size.height; ++i)
+        {
+            oss << result_pca.eigenvalues.data[i] << ", ";
+        }
+        LOG_INFO("PCA Result: {} eigenvalues: {}", result_pca.eigenvalues.size.height, oss.str());
+
+        const auto end = std::chrono::high_resolution_clock::now();
+        LOG_INFO("Time elapsed: {}", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+
+        // Object Data
+        // PCA ?
+        // Classfiaiton
+
+        // TODO:
+        // 1. Cast image to pca dimensions
+        // 2. Calculate statistical values
+        // 3. Tree/SVM
+    }
+
+
+    ImGui::End();
+
+    ImGui::Begin("Wyświetlanie");
+
+    threshold_window_.Show();
+
+    ImGui::End();
+}
+
+
 
