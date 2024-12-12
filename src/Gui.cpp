@@ -296,23 +296,6 @@ void PCAWindow::Show()
 {
     ImGui::Begin("PCA");
 
-
-    if (ImGui::Button("Run PCA"))
-    {
-        auto get_data = [=, i=0]() mutable -> std::shared_ptr<float[]> {
-            return GetImageData(*std::next(to_calculate_.begin(), i++)).data;
-        };
-
-        const auto height = selected_size_.width * selected_size_.height;
-        const auto width = selected_size_.depth;
-
-        pca_entity_ = to_calculate_;
-
-        LOG_INFO("PCAWindow: started pca!");
-        // TODO: run in std::async!
-        // const auto pca_result = PCA(get_data, height, width, to_calculate_.size());
-    }
-
     {
         static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
                                        ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable |
@@ -360,23 +343,6 @@ void PCAWindow::Show()
         ImGui::Spacing();
     }
 
-    if (ImGui::BeginCombo(reinterpret_cast<const char *>(u8"Wyświetl"), name_.c_str()))
-    {
-        for (const auto entity : pca_entity_)
-        {
-            ImGui::PushID(reinterpret_cast<void*>(entity));
-            auto name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
-            if (ImGui::Selectable(name.c_str(), entity == loaded_entity_))
-            {
-                // TODO: add orginal image and projected from pca
-                // selected_ = entity;
-                // name_ = name;
-                // selected_band_ = 1;
-            }
-            ImGui::PopID();
-        }
-        ImGui::EndCombo();
-    }
     ImGui::End();
 }
 
@@ -437,7 +403,7 @@ void Image::Clear()
 }
 
 
-void ThresholdWindow::Show()
+void ImageViewWindow::Show()
 {
     ImGui::Text("Skala");
 
@@ -453,7 +419,7 @@ void ThresholdWindow::Show()
 
 }
 
-void ThresholdWindow::LoadEntity(Entity entity)
+void ImageViewWindow::LoadEntity(Entity entity)
 {
     auto cpu_matrix = GetImageData(entity);
 
@@ -463,14 +429,10 @@ void ThresholdWindow::LoadEntity(Entity entity)
     loaded_entity_ = entity;
 }
 
-void ThresholdWindow::RunThreshold()
+void ImageViewWindow::RunThreshold(float threshold, std::size_t threshold_band)
 {
-    //
-    const float threshold = 0.03;
-    const std::size_t threshold_band = 1;
-
     const auto pixels_width = img_size_.width * img_size_.height;
-    const auto data = original_img_.GetImageData().get() + pixels_width * threshold_band;
+    const auto data = original_img_.GetImageData().get() + pixels_width * (threshold_band - 1);
 
     Matrix img{.bands_height = 1, .pixels_width = pixels_width, .data = data};
     auto mask = ManualThresholding(img, 0, threshold);
@@ -482,12 +444,97 @@ void ThresholdWindow::RunThreshold()
     threshold_img_.LoadImage(mask);
 }
 
-CpuMatrix ThresholdWindow::GetThresholdMask() const
+CpuMatrix ImageViewWindow::GetThresholdMask() const
 {
     auto ptr = threshold_img_.GetImageData();
 
     ImageSize mask_size{.width = img_size_.width, .height = img_size_.height, .depth =  1};
     return {mask_size, std::move(ptr)};
+}
+
+void TransformedImageWindow::Show()
+{
+    ImGui::SeparatorText("Wynik PCA");
+    if (ImGui::SliderInt("Pasmo##PCA_PASMO",  &slider_value_, 1, img_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+    {
+        original_img_.SetBand(img_size_.depth + 1 - slider_value_);
+    }
+    original_img_.Show();
+}
+
+void TransformedImageWindow::Load(const CpuMatrix &cpu_matrix)
+{
+    img_size_ = cpu_matrix.size;
+
+    original_img_.LoadImage(cpu_matrix);
+    original_img_.SetBand(img_size_.depth);
+    slider_value_ = 1;
+}
+
+void ThresholdPopupWindow::RunThreshold()
+{
+
+    const auto pixels_width = img_size_.width * img_size_.height;
+    const auto data = original_img_.GetImageData().get() + pixels_width * (selected_band_ - 1);
+
+    Matrix img{.bands_height = 1, .pixels_width = pixels_width, .data = data};
+    auto mask = ManualThresholding(img, 0, threshold_value_);
+
+    mask.size.height = img_size_.height;
+    mask.size.width = img_size_.width;
+    mask.size.depth = 1;
+
+    threshold_img_.LoadImage(mask);
+}
+
+void ThresholdPopupWindow::Show()
+{
+    if (ImGui::SliderInt("Pasmo##PCA_PASMO",  &selected_band_, 1, img_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+    {
+        original_img_.SetBand(selected_band_);
+        RunThreshold();
+    }
+
+    if (ImGui::InputFloat(reinterpret_cast<const char *>(u8"Próg"), &threshold_value_, 0.01f, 1.f))
+    {
+        RunThreshold();
+    }
+
+    original_img_.Show(0.5f, 0.5f);
+    ImGui::SameLine(0, 25);
+    threshold_img_.Show(0.5f, 0.5f);
+
+    if (ImGui::Button("Zapisz"))
+    {
+        saved_settings_ = {.threshold = threshold_value_, .band = selected_band_};
+        LOG_INFO("Threshold popup window, saved settings: threshold={}, band={}", threshold_value_, selected_band_);
+        ImGui::CloseCurrentPopup();
+    }
+}
+
+void ThresholdPopupWindow::Load(const CpuMatrix &cpu_matrix)
+{
+    img_size_ = cpu_matrix.size;
+    original_img_.LoadImage(cpu_matrix);
+    selected_band_ = 1;
+    threshold_value_ = 0.0f;
+
+    RunThreshold();
+}
+
+
+void PcaPopupWindow::Show()
+{
+    // Run with all pca bands, then select to run all objects
+
+    ImGui::SliderInt("Liczba pasm##PCA_PASMO",  &selected_bands_, 1, max_bands_, "%d", ImGuiSliderFlags_ClampOnInput);
+
+    if (ImGui::Button("Zapisz"))
+    {
+        saved_settings_ = {.selected_bands = static_cast<std::size_t>(selected_bands_)};
+        LOG_INFO("PCA popup window, saved settings: k_bands={}", selected_bands_);
+        ImGui::CloseCurrentPopup();
+    }
 }
 
 void MainWindow::Show()
@@ -506,6 +553,7 @@ void MainWindow::Show()
             {
                 selected_img_name_= name;
                 threshold_window_.LoadEntity(entity);
+                has_run_pca = false;
             }
             ImGui::PopID();
         }
@@ -514,46 +562,39 @@ void MainWindow::Show()
 
     if (ImGui::Button("Progowanie"))
     {
-
+        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+        threshold_popup_window_.Load(cpu_img);
+        ImGui::OpenPopup("Progowanie##Okno progowania");
     }
+
+    if (ImGui::BeginPopup("Progowanie##Okno progowania"))
+    {
+        threshold_popup_window_.Show();
+        ImGui::EndPopup();
+    }
+
     ImGui::SameLine();
-    ImGui::Button("PCA");
+    if (ImGui::Button("PCA"))
+    {
+        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+        pca_popup_window_.SetMaxBands(cpu_img.size.depth);
+        ImGui::OpenPopup("Ustawienia PCA");
+    }
+
+    if (ImGui::BeginPopup("Ustawienia PCA"))
+    {
+        pca_popup_window_.Show();
+        ImGui::EndPopup();
+    }
+
     ImGui::SameLine();
     ImGui::Button("Klasyfikacja");
+
     ImGui::SameLine();
     if (ImGui::Button("Wszystko TEST"))
     {
-        const auto start = std::chrono::high_resolution_clock::now();
-
-        threshold_window_.RunThreshold();
-        CpuMatrix mask = threshold_window_.GetThresholdMask();
-
-        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
-        auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
-
-        auto LoadData = [&](std::size_t i) -> CpuMatrix { return cpu_object; };
-        auto result_pca = PCA(LoadData,  cpu_img.size.depth, cpu_img.size.height * cpu_img.size.width, 1);
-
-        std::ostringstream oss;
-        for (std::size_t i = 0; i < result_pca.eigenvalues.size.height; ++i)
-        {
-            oss << result_pca.eigenvalues.data[i] << ", ";
-        }
-        LOG_INFO("PCA Result: {} eigenvalues: {}", result_pca.eigenvalues.size.height, oss.str());
-
-        const auto end = std::chrono::high_resolution_clock::now();
-        LOG_INFO("Time elapsed: {}", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
-
-        // Object Data
-        // PCA ?
-        // Classfiaiton
-
-        // TODO:
-        // 1. Cast image to pca dimensions
-        // 2. Calculate statistical values
-        // 3. Tree/SVM
+        RunAllButton();
     }
-
 
     ImGui::End();
 
@@ -561,8 +602,79 @@ void MainWindow::Show()
 
     threshold_window_.Show();
 
+    if (has_run_pca)
+    {
+        pca_transformed_window_.Show();
+    }
+
     ImGui::End();
 }
 
+void MainWindow::RunAllButton()
+{
+    if (selected_img_name_.empty())
+    {
+        // TODO: print error message
+        LOG_WARN("RunAllButton: image is empty");
+        return;
+    }
+
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    /// Threshold
+    const auto opt_threshold_settings = threshold_popup_window_.GetThresholdSettings();
+    if (!opt_threshold_settings.has_value())
+    {
+        LOG_WARN("RunAllButton: Threshold settings not set");
+        return;
+    }
+
+    const auto [threshold, threshold_band] = opt_threshold_settings.value();
+    threshold_window_.RunThreshold(threshold, threshold_band);
+    CpuMatrix mask = threshold_window_.GetThresholdMask();
+
+    /// Object on mask
+    auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+    auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+
+    /// PCA
+    auto LoadData = [&](std::size_t i) -> CpuMatrix { return cpu_object; };
+    auto result_pca = PCA(LoadData,  cpu_img.size.depth, cpu_img.size.height * cpu_img.size.width, 1);
+
+    std::ostringstream oss;
+    for (std::size_t i = 0; i < result_pca.eigenvalues.size.height; ++i)
+    {
+        oss << result_pca.eigenvalues.data[i] << ", ";
+    }
+    LOG_INFO("PCA Result: {} eigenvalues: {}", result_pca.eigenvalues.size.height, oss.str());
+    has_run_pca = true;
 
 
+    /// PCA transform
+    auto LoadDataImg = [&](std::size_t i) -> CpuMatrix { return cpu_img; };
+
+    auto opt_pca_settings = pca_popup_window_.GetThresholdSettings();
+    if (!opt_pca_settings.has_value())
+    {
+        LOG_WARN("RunAllButton: PCA settings not set");
+        return;
+    }
+    std::size_t k_bands = opt_pca_settings.value().selected_bands;
+    pca_transformed_images_ = MatmulPcaEigenvectors(result_pca.eigenvectors, k_bands, LoadDataImg, cpu_img.size.height * cpu_img.size.width, 1);
+
+    assert(pca_transformed_images_.size() == 1);
+    auto &size = pca_transformed_images_[0].size;
+
+    pca_transformed_window_.Load(pca_transformed_images_[0]);
+
+    LOG_INFO("Img size: {} {} {}", size.width, size.height, size.depth);
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+
+    // Classfiaiton
+
+    // TODO:
+    // 2. Calculate statistical values
+    // 3. Tree/SVM
+}

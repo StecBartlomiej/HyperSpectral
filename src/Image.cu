@@ -8,7 +8,8 @@
 #include <iostream>
 #include <map>
 #include <numeric>
-
+#include <span>
+#include <cmath>
 
 extern Coordinator coordinator;
 
@@ -451,6 +452,7 @@ ResultPCA PCA(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_heigh
         .data = std::move(eigenvector)
     };
 
+
     return {.eigenvalues = mat_eigenvalues, .eigenvectors = mat_eigenvectors};
 }
 
@@ -467,7 +469,6 @@ __global__ void Threshold(Matrix img, std::size_t band, float threshold, float *
 
 CpuMatrix ManualThresholding(Matrix img, std::size_t band, float threshold)
 {
-    LOG_INFO("Running ManualThresholding with threshold={}", threshold);
     Matrix d_img{img.bands_height, img.pixels_width, nullptr};
     float *d_mask = nullptr;
 
@@ -617,4 +618,103 @@ CpuMatrix GetObjectFromMask(Matrix img, Matrix mask)
     ImageSize size{1, static_cast<uint32_t>(new_img.pixels_width), static_cast<uint32_t>(new_img.bands_height)};
 
     return {size, std::move(cpu_ptr)};
+}
+
+__global__ void MatMul(const Matrix a, const Matrix b, const Matrix c)
+{
+    assert(a.pixels_width == b.bands_height);
+
+    const std::size_t x = blockIdx.x * blockDim.x + threadIdx.x;
+    const std::size_t y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= c.pixels_width || y >= c.bands_height)
+        return;
+
+    float value = 0.f;
+    for (std::size_t i = 0; i < a.pixels_width; ++i)
+    {
+        value += GetElement(a, y, i) * GetElement(b, i, x);
+    }
+    AddElement(c, y, x, value);
+}
+
+
+std::vector<CpuMatrix> MatmulPcaEigenvectors(CpuMatrix &eigenvectors, std::size_t k_bands,
+    std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_pixels, std::size_t data_count)
+{
+    // Matmul [k_bands, bands] x [bands, pixels]
+
+    auto blocking_load_img = [&, max_pixels](std::size_t i, Matrix &img) -> ImageSize {
+        auto [size, ptr] = LoadData(i);
+
+        img.pixels_width = size.width * size.height;
+        img.bands_height = size.depth;
+
+        assert(img.pixels_width <= max_pixels);
+
+        CudaAssert(cudaMemcpy(img.data, ptr.get(), size.height * size.width * size.depth * sizeof(float), cudaMemcpyHostToDevice));
+        return size;
+    };
+
+    auto GetCpuMatrix = [k_bands](Matrix img, ImageSize size) -> CpuMatrix {
+        ImageSize cpu_size = {.width = size.width, .height = size.height, .depth = static_cast<uint32_t>(k_bands)};
+
+        std::shared_ptr<float[]> cpu_ptr = std::make_shared<float[]>(k_bands * size.width * size.height);
+        CudaAssert(cudaMemcpy(cpu_ptr.get(), img.data, k_bands * size.width * size.height * sizeof(float), cudaMemcpyDeviceToHost));
+
+        return CpuMatrix{cpu_size, std::move(cpu_ptr)};
+    };
+
+    const auto bands = eigenvectors.size.width;
+
+    assert(data_count >= 1);
+    assert(k_bands < bands);
+
+    Matrix c_eigenvectors{k_bands, bands, nullptr};
+    Matrix c_img{bands, max_pixels, nullptr};
+    Matrix c_img_to_copy{bands, max_pixels, nullptr};
+    Matrix c_result{k_bands, max_pixels, nullptr};
+
+    CudaAssert(cudaMalloc(&c_eigenvectors.data, k_bands * bands * sizeof(float)));
+    CudaAssert(cudaMalloc(&c_img.data, bands * max_pixels * sizeof(float)));
+    CudaAssert(cudaMalloc(&c_img_to_copy.data, bands * max_pixels * sizeof(float)));
+    CudaAssert(cudaMalloc(&c_result.data, k_bands * max_pixels * sizeof(float)));
+
+    CudaAssert(cudaMemcpy(c_eigenvectors.data, eigenvectors.data.get() + (bands - k_bands) * bands, k_bands * bands * sizeof(float), cudaMemcpyHostToDevice));
+    CudaAssert(cudaMemset(c_result.data, 0.f, k_bands * max_pixels * sizeof(float)));
+
+    cudaStream_t stream1;
+    CudaAssert(cudaStreamCreateWithFlags(&stream1, cudaStreamNonBlocking));
+
+    dim3 threads{32, 32};
+    dim3 blocks{static_cast<unsigned int>(max_pixels) / 32 + 1, static_cast<unsigned int>(k_bands / 32 + 1)};
+
+    std::vector<CpuMatrix> results;
+
+    ImageSize loaded_img_size = blocking_load_img(0, c_img);
+
+    for (std::size_t i = 0; i < data_count - 1; ++i)
+    {
+        MatMul<<<blocks, threads, 0, stream1>>>(c_eigenvectors, c_img, c_result);
+
+        ImageSize loaded_img_size2 = blocking_load_img(i + 1, c_img_to_copy);
+
+        // wait for stream
+        cudaStreamSynchronize(stream1);
+        results.push_back(GetCpuMatrix(c_result, loaded_img_size));
+
+        std::swap(c_img, c_img_to_copy);
+        std::swap(loaded_img_size, loaded_img_size2);
+    }
+    MatMul<<<blocks, threads, 0, stream1>>>(c_eigenvectors, c_img, c_result);
+    cudaStreamSynchronize(stream1);
+    results.push_back(GetCpuMatrix(c_result, loaded_img_size));
+
+    cudaStreamDestroy(stream1);
+    cudaFree(c_eigenvectors.data);
+    cudaFree(c_img.data);
+    cudaFree(c_img_to_copy.data);
+    cudaFree(c_result.data);
+
+    return results;
 }

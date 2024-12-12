@@ -118,14 +118,14 @@ private:
 };
 
 
-class ThresholdWindow final
+class ImageViewWindow
 {
 public:
     void Show();
 
     void LoadEntity(Entity entity);
 
-    void RunThreshold();
+    void RunThreshold(float threshold, std::size_t threshold_band);
 
     [[nodiscard]] CpuMatrix GetThresholdMask() const;
 
@@ -138,6 +138,66 @@ private:
     ImageSize img_size_{0, 0, 1};
 };
 
+class TransformedImageWindow
+{
+public:
+
+    void Show();
+
+    void Load(const CpuMatrix &cpu_matrix);
+
+private:
+    std::optional<Entity> loaded_entity_{std::nullopt};
+    Image original_img_{};
+    ImageSize img_size_{0, 0, 1};
+    bool has_img_ = false;
+    int slider_value_ = 1;
+};
+
+struct ThresholdSetting
+{
+    float threshold;
+    int band;
+};
+
+class ThresholdPopupWindow
+{
+public:
+    void Show();
+
+    void Load(const CpuMatrix &cpu_matrix);
+
+    void RunThreshold();
+
+    [[nodiscard]] auto GetThresholdSettings() const -> std::optional<ThresholdSetting> { return saved_settings_; };
+
+private:
+    Image original_img_;
+    Image threshold_img_;
+    ImageSize img_size_{0, 0, 1};
+    int selected_band_ = 1;
+    float threshold_value_ = 0.f;
+    std::optional<ThresholdSetting> saved_settings_ = std::nullopt;
+};
+
+struct PcaSetting
+{
+    std::size_t selected_bands;
+};
+
+class PcaPopupWindow
+{
+public:
+    void SetMaxBands(std::size_t n) { max_bands_ = n; };
+
+    void Show();
+
+    [[nodiscard]] auto GetThresholdSettings() const -> std::optional<PcaSetting> { return saved_settings_; };
+private:
+    std::size_t max_bands_ = 0;
+    int selected_bands_ = 0;
+    std::optional<PcaSetting> saved_settings_ = std::nullopt;
+};
 
 class MainWindow
 {
@@ -147,10 +207,19 @@ public:
     void Show();
 
 private:
-    ThresholdWindow threshold_window_{};
+    void RunAllButton();
+
+private:
+    ImageViewWindow threshold_window_{};
     std::string selected_img_name_ = "";
     HasNameSystem *has_name_system_;
+    TransformedImageWindow pca_transformed_window_{};
+    ThresholdPopupWindow threshold_popup_window_{};
+    PcaPopupWindow pca_popup_window_{};
+    std::vector<CpuMatrix> pca_transformed_images_{};
+    bool has_run_pca = false;
 };
+
 
 
 #endif //GUI_HPP
