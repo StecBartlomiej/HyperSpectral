@@ -6,6 +6,7 @@ set(TEST_FILES
         EnviHeaderTest.cpp
         EntityComponentSystemTest.cpp
         ImageCudaTest.cu
+        ClassificationTest.cpp
 )
 
 add_executable(tests ${TEST_FILES})

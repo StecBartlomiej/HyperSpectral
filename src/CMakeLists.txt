@@ -7,6 +7,7 @@ set(SOURCE_FILES
         EntityComponentSystem.cpp
         Components.cpp
         Image.cu
+        Classification.cpp
 )
 
 set(GUI_SOURCE_FILES

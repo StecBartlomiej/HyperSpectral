@@ -17,6 +17,12 @@ struct ImageSize
     uint32_t depth;
 };
 
+struct TreeAttributes
+{
+    std::vector<float> attributes;
+    std::uint32_t class_id;
+};
+
 [[nodiscard]] bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept;
 
 void RegisterComponents();
