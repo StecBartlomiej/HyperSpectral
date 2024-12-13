@@ -487,6 +487,106 @@ void ThresholdPopupWindow::RunThreshold()
     threshold_img_.LoadImage(mask);
 }
 
+void DataInputImageWindow::Show()
+{
+    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Plik nagłówkowy ENVI"),
+        envi_header_path_.filename().string().c_str()))
+    {
+        std::size_t idx = 0;
+        for (const auto filepath: std::filesystem::directory_iterator(loading_image_path_))
+        {
+            if (!filepath.is_regular_file() || filepath.path().extension() != ".hdr")
+                continue;
+
+            ImGui::PushID(reinterpret_cast<void*>(idx));
+            const auto name = filepath.path().filename().string();
+
+            bool selected = false;
+            if (ImGui::Selectable(name.c_str(), selected))
+            {
+                envi_header_path_ = filepath.path();
+            }
+            ImGui::PopID();
+            ++idx;
+        }
+        ImGui::EndCombo();
+    }
+
+    constexpr static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable |
+                                   ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+    static int freeze_cols = 1;
+    static int freeze_rows = 1;
+
+    ImVec2 outer_size = ImVec2(0.0f, 16 * 8);
+    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8"Wybierz dane wejściowe"), 3, flags, outer_size))
+    {
+        ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
+
+        ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Nazwa obrazu");
+        ImGui::TableSetupColumn("Wybierz");
+
+        ImGui::TableHeadersRow();
+        int row = 0;
+        for (const auto &files_iter : std::filesystem::directory_iterator(loading_image_path_))
+        {
+            if (!is_regular_file(files_iter) || files_iter.path().extension() != ".dat")
+                continue;
+
+            ImGui::TableNextRow();
+
+            if (!ImGui::TableSetColumnIndex(0))
+                continue;
+            ImGui::Text("%d", row);
+
+            if (!ImGui::TableSetColumnIndex(1))
+                continue;
+
+            const auto filepath = files_iter.path();
+            const std::string file_name = filepath.filename().string();
+
+            ImGui::Text(file_name.c_str());
+
+            if (!ImGui::TableSetColumnIndex(2))
+                continue;
+
+            bool is_enabled = selected_files_[filepath];
+
+            ImGui::PushID(row);
+            if (ImGui::Checkbox("", &is_enabled))
+            {
+                selected_files_[filepath] = is_enabled;
+            }
+            ImGui::PopID();
+            row++;
+        }
+        ImGui::EndTable();
+    }
+    ImGui::Spacing();
+
+    if (ImGui::Button("Wczytaj"))
+    {
+        LoadImages();
+        ImGui::CloseCurrentPopup();
+    }
+}
+
+void DataInputImageWindow::LoadImages()
+{
+    for (const auto &[filepath, is_enabled] : selected_files_)
+    {
+        if (!is_enabled)
+            continue;
+
+        const FilesystemPaths paths{.envi_header = envi_header_path_, .img_data = filepath};
+        const auto entity = CreateImage(paths);
+        LOG_INFO("Created entity with file path: {}", filepath.string());
+
+        selected_entity_.push_back(entity);
+    }
+}
+
 void ThresholdPopupWindow::Show()
 {
     if (ImGui::SliderInt("Pasmo##PCA_PASMO",  &selected_band_, 1, img_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
@@ -541,10 +641,15 @@ void MainWindow::Show()
 {
     ImGui::Begin("Ustawienia");
 
+    if (ImGui::Button("Wczytaj dane"))
+    {
+        ImGui::OpenPopup("Wczytaywanie danych");
+    }
+
     ImGui::Button("Ustawienia");
     if (ImGui::BeginCombo("Wybierz obraz", selected_img_name_.c_str()))
     {
-        for (const auto entity : has_name_system_->entities_)
+        for (const auto entity : data_input_window_.GetLoadedEntities())
         {
             ImGui::PushID(reinterpret_cast<void*>(entity));
             auto name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
@@ -567,24 +672,12 @@ void MainWindow::Show()
         ImGui::OpenPopup("Progowanie##Okno progowania");
     }
 
-    if (ImGui::BeginPopup("Progowanie##Okno progowania"))
-    {
-        threshold_popup_window_.Show();
-        ImGui::EndPopup();
-    }
-
     ImGui::SameLine();
     if (ImGui::Button("PCA"))
     {
         auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
         pca_popup_window_.SetMaxBands(cpu_img.size.depth);
         ImGui::OpenPopup("Ustawienia PCA");
-    }
-
-    if (ImGui::BeginPopup("Ustawienia PCA"))
-    {
-        pca_popup_window_.Show();
-        ImGui::EndPopup();
     }
 
     ImGui::SameLine();
@@ -595,6 +688,8 @@ void MainWindow::Show()
     {
         RunAllButton();
     }
+
+    ShowPopupsWindow();
 
     ImGui::End();
 
@@ -677,4 +772,26 @@ void MainWindow::RunAllButton()
     // TODO:
     // 2. Calculate statistical values
     // 3. Tree/SVM
+}
+
+void MainWindow::ShowPopupsWindow()
+{
+    if (ImGui::BeginPopup("Wczytaywanie danych"))
+    {
+        data_input_window_.Show();
+        ImGui::EndPopup();
+    }
+
+
+    if (ImGui::BeginPopup("Progowanie##Okno progowania"))
+    {
+        threshold_popup_window_.Show();
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("Ustawienia PCA"))
+    {
+        pca_popup_window_.Show();
+        ImGui::EndPopup();
+    }
 }

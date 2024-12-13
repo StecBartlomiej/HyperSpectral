@@ -6,6 +6,7 @@
 #include "Image.hpp"
 
 #include <glad/gl.h>
+#include <map>
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -154,6 +155,22 @@ private:
     int slider_value_ = 1;
 };
 
+class DataInputImageWindow
+{
+public:
+    void Show();
+
+    void LoadImages();
+
+    const std::vector<Entity>& GetLoadedEntities() const { return selected_entity_; };
+
+private:
+    std::filesystem::path loading_image_path_{R"(E:\Praca inzynierska\HSI images\)"};
+    std::filesystem::path envi_header_path_{};
+    std::vector<Entity> selected_entity_;
+    std::map<std::filesystem::path, bool> selected_files_;
+};
+
 struct ThresholdSetting
 {
     float threshold;
@@ -180,10 +197,12 @@ private:
     std::optional<ThresholdSetting> saved_settings_ = std::nullopt;
 };
 
+
 struct PcaSetting
 {
     std::size_t selected_bands;
 };
+
 
 class PcaPopupWindow
 {
@@ -199,6 +218,7 @@ private:
     std::optional<PcaSetting> saved_settings_ = std::nullopt;
 };
 
+
 class MainWindow
 {
 public:
@@ -209,12 +229,15 @@ public:
 private:
     void RunAllButton();
 
+    void ShowPopupsWindow();
+
 private:
     ImageViewWindow threshold_window_{};
     std::string selected_img_name_ = "";
     HasNameSystem *has_name_system_;
     TransformedImageWindow pca_transformed_window_{};
     ThresholdPopupWindow threshold_popup_window_{};
+    DataInputImageWindow data_input_window_{};
     PcaPopupWindow pca_popup_window_{};
     std::vector<CpuMatrix> pca_transformed_images_{};
     bool has_run_pca = false;
