@@ -459,3 +459,37 @@ TEST_CASE("Statical parameters", "[CUDA]")
     }
 
 }
+
+TEST_CASE("PCA image projection", "[CUDA]")
+{
+    std::shared_ptr<float[]> d1{new float[] {
+        1, 2, 3,
+        4, 5, 6,
+        7, 8, 9
+    }};
+
+    CpuMatrix input_matrix{{3, 1, 3}, std::move(d1)};
+
+    std::shared_ptr<float[]> d2{new float[] {
+        1, 1, 1,
+        2, 2, 2,
+    }};
+    CpuMatrix eigenvectors{{3, 2, 1}, std::move(d2)};
+    static constexpr std::size_t k_bands = 2;
+
+    auto LoadData = [&](std::size_t i) -> CpuMatrix {
+        return input_matrix;
+    };
+
+    const auto vec_img = MatmulPcaEigenvectors(eigenvectors, k_bands, LoadData, 3, 1);
+
+    const float expected[] = {12, 15, 18, 24, 30, 36};
+
+    REQUIRE(vec_img.size() == 1);
+    const auto &result_img = vec_img.front();
+
+    for (std::size_t i = 0; i < 6; ++i)
+    {
+        REQUIRE(result_img.data[i] == expected[i]);
+    }
+}
