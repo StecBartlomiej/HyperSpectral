@@ -718,3 +718,110 @@ std::vector<CpuMatrix> MatmulPcaEigenvectors(CpuMatrix &eigenvectors, std::size_
 
     return results;
 }
+
+
+__global__ void CalculateFourMovements(Matrix img, Matrix result)
+{
+    const auto y = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (y < img.bands_height)
+    {
+        float sum2 = 0;
+        float sum3 = 0;
+        float sum4 = 0;
+
+        for (std::size_t x = 0; x < img.pixels_width; ++x)
+        {
+            const auto pixel = GetElement(img, y, x);
+
+            const float val2 = pixel * pixel;
+            const float val3 = val2 * pixel;
+            const float val4 = val3 * pixel;
+
+            sum2 += val2;
+            sum3 += val3;
+            sum4 += val4;
+        }
+
+        sum2 /= static_cast<float>(img.pixels_width);
+        sum3 /= static_cast<float>(img.pixels_width);
+        sum4 /= static_cast<float>(img.pixels_width);
+
+        SetElement(result, y, 0, sum2);
+        SetElement(result, y, 1, sum3);
+        SetElement(result, y, 2, sum4);
+    }
+}
+
+std::vector<StatisticalParameters> GetStatistics(CpuMatrix cpu_img)
+{
+    assert(cpu_img.data != nullptr);
+
+    Matrix img{cpu_img.size.depth, cpu_img.size.width * cpu_img.size.height, nullptr};
+    Matrix mean{img.bands_height, 1, nullptr};
+
+    Matrix four_movements{img.bands_height, 3, nullptr};
+
+    CudaAssert(cudaMalloc(&img.data, img.bands_height * img.pixels_width * sizeof(float)));
+    CudaAssert(cudaMalloc(&mean.data, mean.bands_height * mean.pixels_width * sizeof(float)));
+    CudaAssert(cudaMalloc(&four_movements.data, four_movements.bands_height * four_movements.pixels_width * sizeof(float)));
+
+    CudaAssert(cudaMemcpy(img.data, cpu_img.data.get(), img.bands_height * img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
+    CudaAssert(cudaMemset(mean.data, 0, mean.bands_height * mean.pixels_width * sizeof(float)));
+
+    dim3 threads_sum{32, 32};
+    dim3 blocks_sum{static_cast<unsigned int>(img.pixels_width / 32 + 1), static_cast<unsigned int>(img.bands_height / 32 + 1)};
+
+    dim3 threads_division{1, 1024};
+    dim3 blocks_division{1, static_cast<unsigned int>(mean.bands_height/ 32 + 1)};
+
+    dim3 threads_subtract{32, 32};
+    dim3 blocks_subtract{static_cast<unsigned int>(img.pixels_width / 32 + 1), static_cast<unsigned int>(img.bands_height / 32 + 1)};
+
+    dim3 threads_movement{1024};
+    dim3 blocks_movement{static_cast<unsigned int>(img.bands_height/ 32 + 1)};
+
+
+    /// START CUDA PIPELINE
+    SumRows<<<blocks_sum, threads_sum>>>(img, mean);
+
+    PieceWiseDivision<<<blocks_division, threads_division>>>(mean, static_cast<float>(img.pixels_width));
+
+    SubtractMean<<<blocks_subtract, threads_subtract>>>(img, mean);
+
+    CalculateFourMovements<<<blocks_movement, threads_movement>>>(img, four_movements);
+
+    cudaDeviceSynchronize();
+    /// END CUDA PIPELINE
+
+
+    std::unique_ptr<float[]> cpu_mean{new float[img.bands_height]};
+    std::unique_ptr<float[]> cpu_movements{new float[img.bands_height * 3]};
+
+    CudaAssert(cudaMemcpy(cpu_mean.get(), mean.data, img.bands_height *  sizeof(float), cudaMemcpyDeviceToHost));
+    CudaAssert(cudaMemcpy(cpu_movements.get(), four_movements.data, img.bands_height * 3 * sizeof(float), cudaMemcpyDeviceToHost));
+
+    std::vector<StatisticalParameters> result;
+    for (std::size_t i = 0; i < img.bands_height; ++i)
+    {
+        const std::size_t idx = i * 3;
+
+        const float mean_value = cpu_mean[i];
+        const float second_movement = cpu_movements[idx]; // variance
+        const float third_movement = cpu_movements[idx + 1];
+        const float fourth_movement = cpu_movements[idx + 2];
+
+        const float std_dev = sqrt(second_movement);
+
+        const float skewness = third_movement / std::pow(std_dev, 3);
+        const float kurtosis = fourth_movement / std::pow(std_dev, 4);
+
+        result.push_back(StatisticalParameters{mean_value, second_movement, skewness, kurtosis});
+    }
+
+    cudaFree(img.data);
+    cudaFree(mean.data);
+    cudaFree(four_movements.data);
+
+    return result;
+}

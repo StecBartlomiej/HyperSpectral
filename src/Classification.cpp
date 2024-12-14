@@ -83,7 +83,7 @@ void Tree::TrainNode(Node root, const ObjectList &object_list, const std::vector
 
             for (std::size_t obj_idx = 0; obj_idx < object_list.size(); ++obj_idx)
             {
-                const auto attr_list = object_list[obj_idx];
+                const auto &attr_list = object_list[obj_idx];
                 const auto curr_class = object_classes[obj_idx];
                 assert(curr_class < class_count_);
 

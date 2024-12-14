@@ -201,4 +201,22 @@ __global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img);
 [[nodiscard]] std::vector<CpuMatrix> MatmulPcaEigenvectors(CpuMatrix &eigenvectors, std::size_t k_bands,
                std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_pixels, std::size_t data_count);
 
+
+struct StatisticalParameters
+{
+    float mean;
+    float variance;
+    float skewness;
+    float kurtosis;
+};
+
+__global__ void CalculateFourMovements(Matrix img, Matrix result);
+
+/**
+ * @brief Calculates \a StatisticalParameter used in classification algorithm
+ * @param cpu_img band is result from projection after PCA,
+ * @return vector of statistic parameters for each principal component (band) in \a cpu_img
+ */
+[[nodiscard]] std::vector<StatisticalParameters> GetStatistics(CpuMatrix cpu_img);
+
 #endif //HYPERSPECTRAL_IMAGE_HPP

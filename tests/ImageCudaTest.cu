@@ -430,3 +430,32 @@ TEST_CASE("Thresholding + PCA", "[CUDA]")
         printf("%f ", pca_result.eigenvalues.data[i]);
     }
 }
+
+TEST_CASE("Statical parameters", "[CUDA]")
+{
+    std::shared_ptr<float[]> d1{new float[] {0, -3,  5,  1, -2,  1, -1,  3,
+                                             2,  1, -2, -3,  4, -2,  2,  1,
+                                            -3,  4,  2,  0, -1,  2,  3, -3 }};
+
+    CpuMatrix input_matrix{{8, 1, 3}, std::move(d1)};
+
+    std::vector<StatisticalParameters> vec_result = GetStatistics(input_matrix);
+
+    //                             Mean   Variance  Skewness  Kurtosis
+    const float expected[3 * 4] = {0.5000,  6.0000,   0.3827,  2.2344,
+                                   0.3750,  5.2344,  -0.0890,  1.7351,
+                                   0.5000,  6.2500,  -0.1920,  1.6144};
+
+    for (std::size_t i = 0; i < vec_result.size(); ++i)
+    {
+        const auto idx = i * 4;
+
+        const auto [mean, variance, skewness, kurtosis] = vec_result[i];
+
+        REQUIRE_THAT(mean,     Catch::Matchers::WithinRel(expected[idx + 0], 0.02f) );
+        REQUIRE_THAT(variance, Catch::Matchers::WithinRel(expected[idx + 1], 0.02f) );
+        REQUIRE_THAT(skewness, Catch::Matchers::WithinRel(expected[idx + 2], 0.02f) );
+        REQUIRE_THAT(kurtosis, Catch::Matchers::WithinRel(expected[idx + 3], 0.02f) );
+    }
+
+}
