@@ -641,7 +641,7 @@ __global__ void MatMul(const Matrix a, const Matrix b, const Matrix c)
 }
 
 
-std::vector<CpuMatrix> MatmulPcaEigenvectors(CpuMatrix &eigenvectors, std::size_t k_bands,
+std::vector<CpuMatrix> MatmulPcaEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_bands,
     std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_pixels, std::size_t data_count)
 {
     // Matmul [k_bands, bands] x [bands, pixels]
@@ -830,4 +830,17 @@ std::vector<StatisticalParameters> GetStatistics(const CpuMatrix& cpu_img)
     cudaFree(four_movements.data);
 
     return result;
+}
+
+CpuMatrix GetImportantEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_bands)
+{
+    const auto [width, height, band] = eigenvectors.size;
+
+    const int ptr_diff = (static_cast<int>(height) - static_cast<int>(k_bands)) * static_cast<int>(width);
+
+    std::shared_ptr<float[]> eigenvectors_data(new float[k_bands * width]);
+    memcpy(eigenvectors_data.get(), eigenvectors.data.get() + ptr_diff, k_bands * width * sizeof(float));
+
+    ImageSize size{width, static_cast<uint32_t>(k_bands), 1};
+    return CpuMatrix{size, std::move(eigenvectors_data)};
 }

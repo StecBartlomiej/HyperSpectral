@@ -177,6 +177,8 @@ struct ThresholdSetting
     int band;
 };
 
+[[nodiscard]] CpuMatrix RunImageThreshold(const CpuMatrix& img, ThresholdSetting setting);
+
 class ThresholdPopupWindow
 {
 public:
@@ -187,6 +189,8 @@ public:
     void RunThreshold();
 
     [[nodiscard]] auto GetThresholdSettings() const -> std::optional<ThresholdSetting> { return saved_settings_; };
+
+    [[nodiscard]] auto GetImageSize() const -> ImageSize { return img_size_; };
 
 private:
     Image original_img_;
@@ -211,7 +215,7 @@ public:
 
     void Show();
 
-    [[nodiscard]] auto GetThresholdSettings() const -> std::optional<PcaSetting> { return saved_settings_; };
+    [[nodiscard]] auto GetPcaSettings() const -> std::optional<PcaSetting> { return saved_settings_; };
 private:
     std::size_t max_bands_ = 0;
     int selected_bands_ = 0;
@@ -219,10 +223,22 @@ private:
 };
 
 
+class StatisticWindow
+{
+public:
+    void Show();
+
+    void Load(Entity entity, std::vector<StatisticalParameters> param);
+
+private:
+    std::map<Entity, std::vector<StatisticalParameters>> statistics_{};
+};
+
+
 class MainWindow
 {
 public:
-    MainWindow(HasNameSystem* has_name_system): has_name_system_{has_name_system} {}
+    explicit MainWindow(HasNameSystem* has_name_system): has_name_system_{has_name_system} {}
 
     void Show();
 
@@ -231,16 +247,23 @@ private:
 
     void ShowPopupsWindow();
 
+    void UpdateThresholdImage();
+
+    void UpdatePcaImage();
+
 private:
     ImageViewWindow threshold_window_{};
-    std::string selected_img_name_ = "";
+    std::string selected_img_name_{};
     HasNameSystem *has_name_system_;
     TransformedImageWindow pca_transformed_window_{};
     ThresholdPopupWindow threshold_popup_window_{};
     DataInputImageWindow data_input_window_{};
     PcaPopupWindow pca_popup_window_{};
+    StatisticWindow statistic_window_{};
     std::vector<CpuMatrix> pca_transformed_images_{};
-    bool has_run_pca = false;
+    std::vector<std::vector<StatisticalParameters>> statistical_params_{};
+    bool has_run_pca_ = false;
+    ResultPCA result_pca_{};
 };
 
 

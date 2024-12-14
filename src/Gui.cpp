@@ -473,7 +473,6 @@ void TransformedImageWindow::Load(const CpuMatrix &cpu_matrix)
 
 void ThresholdPopupWindow::RunThreshold()
 {
-
     const auto pixels_width = img_size_.width * img_size_.height;
     const auto data = original_img_.GetImageData().get() + pixels_width * (selected_band_ - 1);
 
@@ -493,7 +492,7 @@ void DataInputImageWindow::Show()
         envi_header_path_.filename().string().c_str()))
     {
         std::size_t idx = 0;
-        for (const auto filepath: std::filesystem::directory_iterator(loading_image_path_))
+        for (const auto& filepath: std::filesystem::directory_iterator(loading_image_path_))
         {
             if (!filepath.is_regular_file() || filepath.path().extension() != ".hdr")
                 continue;
@@ -543,7 +542,7 @@ void DataInputImageWindow::Show()
             if (!ImGui::TableSetColumnIndex(1))
                 continue;
 
-            const auto filepath = files_iter.path();
+            const auto& filepath = files_iter.path();
             const std::string file_name = filepath.filename().string();
 
             ImGui::Text(file_name.c_str());
@@ -585,6 +584,21 @@ void DataInputImageWindow::LoadImages()
 
         selected_entity_.push_back(entity);
     }
+}
+
+CpuMatrix RunImageThreshold(const CpuMatrix& img, ThresholdSetting setting)
+{
+    const auto pixels_width = img.size.width * img.size.height;
+    const auto data = img.data.get() + pixels_width * (setting.band - 1);
+
+    Matrix m_img{.bands_height = 1, .pixels_width = pixels_width, .data = data};
+    auto mask = ManualThresholding(m_img, 0, setting.threshold);
+
+    mask.size.height = img.size.height;
+    mask.size.width = img.size.width;
+    mask.size.depth = 1;
+
+    return std::move(mask);
 }
 
 void ThresholdPopupWindow::Show()
@@ -637,6 +651,89 @@ void PcaPopupWindow::Show()
     }
 }
 
+void StatisticWindow::Show()
+{
+    ImGui::SeparatorText("Parametry statystyczne");
+   constexpr static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+                               ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable |
+                               ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+
+   constexpr static ImGuiTreeNodeFlags tree_node_flags = ImGuiTreeNodeFlags_SpanAllColumns;
+
+    static int freeze_cols = 1;
+    static int freeze_rows = 1;
+
+    ImVec2 outer_size = ImVec2(0.0f, 16 * 8 * 2);
+    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8"Parametry statyczne dla obrazów"), 6, flags, outer_size))
+    {
+        ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
+
+        ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Nazwa obrazu");
+        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Średnia"));
+        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Wariancja"));
+        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Skośność"));
+        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Kurtoza"));
+
+        ImGui::TableHeadersRow();
+        int row = 1;
+        for (const auto &[entity, statistic_vec]: statistics_)
+        {
+            ImGui::TableNextRow();
+
+            if (!ImGui::TableSetColumnIndex(0))
+                continue;
+            ImGui::Text("%d", row);
+
+            ImGui::TableNextColumn();
+
+            const auto filename = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
+            bool open = ImGui::TreeNodeEx(filename.c_str(), tree_node_flags);
+
+            if (!open)
+            {
+                ++row;
+                continue;
+            }
+            for (std::size_t pc = 0; pc < statistic_vec.size(); ++pc)
+            {
+                const auto idx = statistic_vec.size() - pc - 1;
+
+                ImGui::TableNextRow();
+
+                if (!ImGui::TableSetColumnIndex(1))
+                    continue;
+
+                std::string band_text = std::to_string(pc + 1);
+                ImGui::TreeNodeEx(band_text.c_str(), tree_node_flags | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_NoTreePushOnOpen);
+
+                if (!ImGui::TableSetColumnIndex(2))
+                    continue;
+                ImGui::Text("%.2e", statistic_vec[idx].mean);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.2e", statistic_vec[idx].variance);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.2e", statistic_vec[idx].skewness);
+
+                ImGui::TableNextColumn();
+                ImGui::Text("%.2e", statistic_vec[idx].kurtosis);
+            }
+
+            ImGui::TreePop();
+            ++row;
+        }
+        ImGui::EndTable();
+    }
+}
+
+void StatisticWindow::Load(Entity entity, std::vector<StatisticalParameters> param)
+{
+    statistics_[entity] = std::move(param);
+}
+
+
 void MainWindow::Show()
 {
     ImGui::Begin("Ustawienia");
@@ -647,18 +744,19 @@ void MainWindow::Show()
     }
 
     ImGui::Button("Ustawienia");
-    if (ImGui::BeginCombo("Wybierz obraz", selected_img_name_.c_str()))
+    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Wyświelt obraz"), selected_img_name_.c_str()))
     {
         for (const auto entity : data_input_window_.GetLoadedEntities())
         {
             ImGui::PushID(reinterpret_cast<void*>(entity));
             auto name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
 
-            if (ImGui::Selectable(name.c_str(), entity == threshold_window_.LoadedEntity().value_or(-1)))
+            if (ImGui::Selectable(name.c_str(), false))
             {
                 selected_img_name_= name;
                 threshold_window_.LoadEntity(entity);
-                has_run_pca = false;
+                UpdateThresholdImage();
+                UpdatePcaImage();
             }
             ImGui::PopID();
         }
@@ -697,9 +795,11 @@ void MainWindow::Show()
 
     threshold_window_.Show();
 
-    if (has_run_pca)
+    if (has_run_pca_)
     {
         pca_transformed_window_.Show();
+
+        statistic_window_.Show();
     }
 
     ImGui::End();
@@ -716,62 +816,86 @@ void MainWindow::RunAllButton()
 
     const auto start = std::chrono::high_resolution_clock::now();
 
-    /// Threshold
+    const auto &entities_vec = data_input_window_.GetLoadedEntities();
     const auto opt_threshold_settings = threshold_popup_window_.GetThresholdSettings();
+
     if (!opt_threshold_settings.has_value())
     {
         LOG_WARN("RunAllButton: Threshold settings not set");
         return;
     }
+    const auto threshold_setting = opt_threshold_settings.value();
+    // const ThresholdSetting threshold_setting{0.05f, 10};
 
-    const auto [threshold, threshold_band] = opt_threshold_settings.value();
-    threshold_window_.RunThreshold(threshold, threshold_band);
-    CpuMatrix mask = threshold_window_.GetThresholdMask();
-
-    /// Object on mask
-    auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
-    auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
-
-    /// PCA
-    auto LoadData = [&](std::size_t i) -> CpuMatrix { return cpu_object; };
-    auto result_pca = PCA(LoadData,  cpu_img.size.depth, cpu_img.size.height * cpu_img.size.width, 1);
-
-    std::ostringstream oss;
-    for (std::size_t i = 0; i < result_pca.eigenvalues.size.height; ++i)
-    {
-        oss << result_pca.eigenvalues.data[i] << ", ";
-    }
-    LOG_INFO("PCA Result: {} eigenvalues: {}", result_pca.eigenvalues.size.height, oss.str());
-    has_run_pca = true;
-
-
-    /// PCA transform
-    auto LoadDataImg = [&](std::size_t i) -> CpuMatrix { return cpu_img; };
-
-    auto opt_pca_settings = pca_popup_window_.GetThresholdSettings();
+    const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
     if (!opt_pca_settings.has_value())
     {
         LOG_WARN("RunAllButton: PCA settings not set");
         return;
     }
-    std::size_t k_bands = opt_pca_settings.value().selected_bands;
-    pca_transformed_images_ = MatmulPcaEigenvectors(result_pca.eigenvectors, k_bands, LoadDataImg, cpu_img.size.height * cpu_img.size.width, 1);
+    const std::size_t k_bands = opt_pca_settings.value().selected_bands;
+    // const std::size_t k_bands = 5;
 
-    assert(pca_transformed_images_.size() == 1);
-    auto &size = pca_transformed_images_[0].size;
+    /// IMAGE PREPROCESSING
+    std::vector<CpuMatrix> cpu_img_objects;
+    cpu_img_objects.reserve(entities_vec.size());
 
-    pca_transformed_window_.Load(pca_transformed_images_[0]);
 
-    LOG_INFO("Img size: {} {} {}", size.width, size.height, size.depth);
+    for (const auto entity : entities_vec)
+    {
+        // LOG_INFO("Runging for entity id={}", entity);
 
-    const auto end = std::chrono::high_resolution_clock::now();
-    LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+        const auto cpu_img = GetImageData(entity);
 
-    // Classfiaiton
+        const auto mask = RunImageThreshold(cpu_img, threshold_setting);
+
+        /// Object on mask
+        auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+        cpu_img_objects.push_back(cpu_object);
+    }
+
+    /// PCA
+    const auto max_obj_size = threshold_popup_window_.GetImageSize();
+    auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
+    result_pca_ = PCA(LoadData,  max_obj_size.depth, max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+
+    /// Get most important eigenvectors
+    result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
+    std::ostringstream oss;
+
+    for (std::size_t i = 0; i < result_pca_.eigenvalues.size.height; ++i)
+    {
+        oss << result_pca_.eigenvalues.data[i] << ", ";
+    }
+    LOG_INFO("PCA Result: {} eigenvalues: {}", result_pca_.eigenvalues.size.height, oss.str());
+    has_run_pca_ = true;
+    UpdatePcaImage();
+
+
+    /// TRANSFORMING IMAGE TO PCA RESULT
+    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
+        max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+
+    for (std::size_t i = 0; i < entities_vec.size(); ++i)
+    {
+        const auto &pca_object = pca_transformed_objects[i];
+        const auto entity = entities_vec[i];
+
+        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
+
+        statistic_window_.Load(entity, statistic_vector);
+        statistical_params_.push_back(statistic_vector);
+
+    }
+
+        /// CLASSFIAITON
 
     // TODO:
     // 2. Calculate statistical values
     // 3. Tree/SVM
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 }
 
 void MainWindow::ShowPopupsWindow()
@@ -779,6 +903,7 @@ void MainWindow::ShowPopupsWindow()
     if (ImGui::BeginPopup("Wczytaywanie danych"))
     {
         data_input_window_.Show();
+        has_run_pca_ = false;
         ImGui::EndPopup();
     }
 
@@ -786,6 +911,7 @@ void MainWindow::ShowPopupsWindow()
     if (ImGui::BeginPopup("Progowanie##Okno progowania"))
     {
         threshold_popup_window_.Show();
+        UpdateThresholdImage();
         ImGui::EndPopup();
     }
 
@@ -794,4 +920,39 @@ void MainWindow::ShowPopupsWindow()
         pca_popup_window_.Show();
         ImGui::EndPopup();
     }
+}
+
+void MainWindow::UpdateThresholdImage()
+{
+    const auto opt_settings = threshold_popup_window_.GetThresholdSettings();
+
+    if (!opt_settings.has_value())
+    {
+        return;
+    }
+    LOG_INFO("UpdateThresholdImage, running threshold for viewing image");
+
+    const auto [threshold, threshold_band] = opt_settings.value();
+    threshold_window_.RunThreshold(threshold, threshold_band);
+}
+
+void MainWindow::UpdatePcaImage()
+{
+    const auto opt_entity = threshold_window_.LoadedEntity();;
+    auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
+
+    if (!opt_pca_settings.has_value() || !opt_entity.has_value() || !has_run_pca_)
+    {
+        return;
+    }
+
+    /// PCA transform
+    auto cpu_img = GetImageData(opt_entity.value());
+    auto LoadDataImg = [&](std::size_t i) -> CpuMatrix { return cpu_img; };
+
+    const std::size_t k_bands = opt_pca_settings.value().selected_bands;
+    pca_transformed_images_ = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadDataImg, cpu_img.size.height * cpu_img.size.width, 1);
+
+    assert(pca_transformed_images_.size() == 1);
+    pca_transformed_window_.Load(pca_transformed_images_[0]);
 }

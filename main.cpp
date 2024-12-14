@@ -20,18 +20,6 @@ int main()
     auto *threshold_window_sys = RegisterGuiThreshold();
     auto *has_name_sys = RegisterHasNameSystem();
 
-    auto img_1 = CreateImage(
-        FilesystemPaths{
-            .envi_header = R"(E:\Praca inzynierska\HSI images\hyperspectralData.hdr)",
-            .img_data =  R"(E:\Praca inzynierska\HSI images\hyperspectralData.dat)"}
-        );
-
-    auto img_2 = CreateImage(
-        FilesystemPaths{
-            .envi_header = R"(E:\Praca inzynierska\HSI images\img2.hdr)",
-            .img_data =  R"(E:\Praca inzynierska\HSI images\img2.dat)"}
-        );
-
     bool show_demo_window = true;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -58,11 +46,18 @@ int main()
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
 
-        image_window_sys->Show();
-        threshold_window_sys->Show();
-        pca_window_sys->Show();
+        // image_window_sys->Show();
+        // threshold_window_sys->Show();
+        // pca_window_sys->Show();
 
-        main_window.Show();
+        try
+        {
+            main_window.Show();
+        }
+        catch (...)
+        {
+            LOG_ERROR("Some exception have benn caught");
+        }
 
 
         // Rendering

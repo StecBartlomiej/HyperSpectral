@@ -493,3 +493,114 @@ TEST_CASE("PCA image projection", "[CUDA]")
         REQUIRE(result_img.data[i] == expected[i]);
     }
 }
+
+TEST_CASE("Get important eigenvectors", "[GUI]")
+{
+    std::shared_ptr<float[]> d1{new float[] {
+        1, 2, 3,
+        4, 5, 6,
+        7, 8, 9
+    }};
+
+    CpuMatrix input_matrix{{3, 3, 1}, std::move(d1)};
+
+    auto result = GetImportantEigenvectors(input_matrix, 2);
+
+    REQUIRE(result.size.width == 3);
+    REQUIRE(result.size.height == 2);
+    REQUIRE(result.size.depth == 1);
+
+    for (std::size_t i = 0; i < 6; ++i)
+    {
+        REQUIRE(result.data[i] == input_matrix.data[i + 3]);
+    }
+}
+
+TEST_CASE("Thresholding + PCA + projection + statistic_parameters", "[GUI]")
+{
+    std::shared_ptr<float[]> d1{new float[]{0.6787, 0.3922, 0.7060, 0.0462,
+                                            0.7577, 0.6555, 0.0318, 0.0971,
+                                            0.7431, 0.1712, 0.2769, 0.8235}};
+
+    std::shared_ptr<float[]> d2{new float[]{0.6948, 0.0344, 0.7655, 0.4898,
+                                            0.3171, 0.4387, 0.7952, 0.4456,
+                                            0.9502, 0.3816, 0.1869, 0.6463}};
+
+    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .depth = 3}, .data = d1};
+    CpuMatrix cpu_matrix_2{.size = {.width = 2, .height = 2, .depth = 3}, .data = d2};
+
+
+
+
+    const std::size_t k_bands = 2;
+
+    /// IMAGE PREPROCESSING
+    std::vector<CpuMatrix> cpu_img_objects;
+    cpu_img_objects.reserve(2);
+
+    const auto mask_1 = ManualThresholding(cpu_matrix_1.GetMatrix(), 1, 0.5);
+    const auto mask_2 = ManualThresholding(cpu_matrix_2.GetMatrix(), 1, 0.5);
+
+
+    /// Object on mask
+    auto cpu_object = GetObjectFromMask(cpu_matrix_1.GetMatrix(), mask_1.GetMatrix());
+    cpu_img_objects.push_back(cpu_object);
+
+    cpu_object = GetObjectFromMask(cpu_matrix_2.GetMatrix(), mask_2.GetMatrix());
+    cpu_img_objects.push_back(cpu_object);
+
+
+    /// PCA
+    auto LoadData = [&](std::size_t i) -> CpuMatrix { return i == 0 ? cpu_matrix_1 : cpu_matrix_2; };
+    ResultPCA result_pca_ = PCA(LoadData,  3, 4, 2);
+
+
+    /// Get most important eigenvectors
+    result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
+
+    /// TRANSFORMING IMAGE TO PCA RESULT
+    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData, 4, 2);
+    REQUIRE(pca_transformed_objects.size() == 2);
+
+    std::vector<StatisticalParameters> expected_vec = {
+        StatisticalParameters{-0.70563614, 0.04992039, -0.6033294, 2.0229032},
+        StatisticalParameters{-0.17557111, 0.12215271, 0.8669471, 2.1088192},
+        StatisticalParameters{-0.7693257, 0.093409255, 0.15445937, 1.956167},
+        StatisticalParameters{-0.24485776, 0.09730937, -1.0491105, 2.252439}
+    };
+
+    {
+        const auto &pca_object = pca_transformed_objects[0];
+
+        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
+
+        for (std::size_t i = 0; i < statistic_vector.size(); ++i)
+        {
+            const auto &row = statistic_vector[i];
+            const auto &exp_row = expected_vec[i];
+
+            REQUIRE_THAT(row.mean, Catch::Matchers::WithinRel(exp_row.mean, 0.02f) );
+            REQUIRE_THAT(row.variance, Catch::Matchers::WithinRel(exp_row.variance, 0.02f) );
+            REQUIRE_THAT(row.skewness, Catch::Matchers::WithinRel(exp_row.skewness, 0.02f) );
+            REQUIRE_THAT(row.kurtosis, Catch::Matchers::WithinRel(exp_row.kurtosis, 0.02f) );
+        }
+    }
+
+    {
+        const auto &pca_object = pca_transformed_objects[1];
+
+        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
+
+        for (std::size_t i = 0; i < statistic_vector.size(); ++i)
+        {
+            const auto &row = statistic_vector[i];
+            const auto &exp_row = expected_vec[i + 2];
+
+            REQUIRE_THAT(row.mean, Catch::Matchers::WithinRel(exp_row.mean, 0.02f) );
+            REQUIRE_THAT(row.variance, Catch::Matchers::WithinRel(exp_row.variance, 0.02f) );
+            REQUIRE_THAT(row.skewness, Catch::Matchers::WithinRel(exp_row.skewness, 0.02f) );
+            REQUIRE_THAT(row.kurtosis, Catch::Matchers::WithinRel(exp_row.kurtosis, 0.02f) );
+        }
+    }
+
+}
