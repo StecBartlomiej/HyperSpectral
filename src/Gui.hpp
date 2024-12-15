@@ -235,6 +235,24 @@ private:
 };
 
 
+class DataClassificationWindow
+{
+public:
+    void Show();
+
+    void Load(std::vector<Entity> entities);
+
+    [[nodiscard]] std::map<Entity, int> GetClasses() const { return classes_; };
+
+    [[nodiscard]] int GetClassCount() const { return classes_.size(); };
+
+private:
+    std::vector<Entity> entities_{};
+    std::map<Entity, int> classes_{};
+    int class_count_ = 1;
+};
+
+
 class MainWindow
 {
 public:
@@ -260,6 +278,8 @@ private:
     DataInputImageWindow data_input_window_{};
     PcaPopupWindow pca_popup_window_{};
     StatisticWindow statistic_window_{};
+    DataClassificationWindow data_classification_window_{};
+
     std::vector<CpuMatrix> pca_transformed_images_{};
     std::vector<std::vector<StatisticalParameters>> statistical_params_{};
     bool has_run_pca_ = false;

@@ -6,6 +6,7 @@
 #include <cassert>
 #include <map>
 #include <chrono>
+#include <Classification.hpp>
 
 
 extern Coordinator coordinator;
@@ -733,6 +734,68 @@ void StatisticWindow::Load(Entity entity, std::vector<StatisticalParameters> par
     statistics_[entity] = std::move(param);
 }
 
+void DataClassificationWindow::Show()
+{
+    ImGui::SliderInt("Liczba klas", &class_count_, 1, 9, "%d", ImGuiSliderFlags_AlwaysClamp);
+
+
+    constexpr static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable |
+                                   ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+    static int freeze_cols = 1;
+    static int freeze_rows = 1;
+
+    ImVec2 outer_size = ImVec2(0.0f, 16 * 8);
+    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8"Przypisz klasy"), 3, flags, outer_size))
+    {
+        ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
+
+        ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("Nazwa obrazu");
+        ImGui::TableSetupColumn("Klasa");
+
+        ImGui::TableHeadersRow();
+        int row = 0;
+        for (const auto entity : entities_)
+        {
+            const std::string file_name = coordinator.GetComponent<FilesystemPaths>(entity).img_data.filename().string();
+
+            ImGui::TableNextRow();
+
+            if (!ImGui::TableSetColumnIndex(0))
+                continue;
+            ImGui::Text("%d", row);
+
+            if (!ImGui::TableSetColumnIndex(1))
+                continue;
+
+            ImGui::Text(file_name.c_str());
+
+            if (!ImGui::TableSetColumnIndex(2))
+                continue;
+
+            ImGui::PushID(row);
+
+            ImGui::SliderInt("Liczba klas", &classes_[entity], 0, class_count_, "%d", ImGuiSliderFlags_AlwaysClamp);
+
+            ImGui::PopID();
+            row++;
+        }
+        ImGui::EndTable();
+    }
+    ImGui::Spacing();
+
+    if (ImGui::Button("Zapisz"))
+    {
+        ImGui::CloseCurrentPopup();
+    }
+}
+
+void DataClassificationWindow::Load(std::vector<Entity> entities)
+{
+    entities_ = std::move(entities);
+}
+
 
 void MainWindow::Show()
 {
@@ -780,7 +843,11 @@ void MainWindow::Show()
     }
 
     ImGui::SameLine();
-    ImGui::Button("Klasyfikacja");
+    if (ImGui::Button("Klasyfikacja"))
+    {
+        data_classification_window_.Load(data_input_window_.GetLoadedEntities());
+        ImGui::OpenPopup("Klasyfikacja##Klasyfikacja_okno");
+    }
 
     ImGui::SameLine();
     if (ImGui::Button("Wszystko TEST"))
@@ -893,6 +960,35 @@ void MainWindow::RunAllButton()
     // 2. Calculate statistical values
     // 3. Tree/SVM
 
+    ObjectList objects;
+    objects.reserve(statistical_params_.size());
+
+    for (const auto &statistic : statistical_params_)
+    {
+        std::vector<float> statistic_vector;
+        statistic_vector.reserve(statistical_params_.size() * 4);
+
+        for (const auto &stat_value : statistic)
+        {
+            statistic_vector.push_back(stat_value.mean);
+            statistic_vector.push_back(stat_value.variance);
+            statistic_vector.push_back(stat_value.skewness);
+            statistic_vector.push_back(stat_value.kurtosis);
+        }
+        objects.push_back(statistic_vector);
+    }
+    std::vector<uint32_t> obj_classes;
+    const auto map_class = data_classification_window_.GetClasses();
+    const std::size_t class_count = data_classification_window_.GetClassCount();
+
+    for (auto entity : entities_vec)
+    {
+        obj_classes.push_back(map_class.at(entity));
+    }
+
+    Tree tree{};
+    tree.Train(objects, obj_classes, class_count);
+
     const auto end = std::chrono::high_resolution_clock::now();
     LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 }
@@ -917,6 +1013,12 @@ void MainWindow::ShowPopupsWindow()
     if (ImGui::BeginPopup("Ustawienia PCA"))
     {
         pca_popup_window_.Show();
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("Klasyfikacja##Klasyfikacja_okno"))
+    {
+        data_classification_window_.Show();
         ImGui::EndPopup();
     }
 }
