@@ -755,6 +755,7 @@ void MainWindow::Show()
             {
                 selected_img_name_= name;
                 threshold_window_.LoadEntity(entity);
+
                 UpdateThresholdImage();
                 UpdatePcaImage();
             }
@@ -825,7 +826,6 @@ void MainWindow::RunAllButton()
         return;
     }
     const auto threshold_setting = opt_threshold_settings.value();
-    // const ThresholdSetting threshold_setting{0.05f, 10};
 
     const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
     if (!opt_pca_settings.has_value())
@@ -834,7 +834,8 @@ void MainWindow::RunAllButton()
         return;
     }
     const std::size_t k_bands = opt_pca_settings.value().selected_bands;
-    // const std::size_t k_bands = 5;
+
+    ImageSize max_obj_size; // TODO make it better
 
     /// IMAGE PREPROCESSING
     std::vector<CpuMatrix> cpu_img_objects;
@@ -843,9 +844,9 @@ void MainWindow::RunAllButton()
 
     for (const auto entity : entities_vec)
     {
-        // LOG_INFO("Runging for entity id={}", entity);
-
         const auto cpu_img = GetImageData(entity);
+
+        max_obj_size = cpu_img.size;
 
         const auto mask = RunImageThreshold(cpu_img, threshold_setting);
 
@@ -855,7 +856,6 @@ void MainWindow::RunAllButton()
     }
 
     /// PCA
-    const auto max_obj_size = threshold_popup_window_.GetImageSize();
     auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
     result_pca_ = PCA(LoadData,  max_obj_size.depth, max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
 
@@ -885,10 +885,9 @@ void MainWindow::RunAllButton()
 
         statistic_window_.Load(entity, statistic_vector);
         statistical_params_.push_back(statistic_vector);
-
     }
 
-        /// CLASSFIAITON
+    /// CLASSFIAITON
 
     // TODO:
     // 2. Calculate statistical values
@@ -930,7 +929,6 @@ void MainWindow::UpdateThresholdImage()
     {
         return;
     }
-    LOG_INFO("UpdateThresholdImage, running threshold for viewing image");
 
     const auto [threshold, threshold_band] = opt_settings.value();
     threshold_window_.RunThreshold(threshold, threshold_band);
@@ -945,12 +943,13 @@ void MainWindow::UpdatePcaImage()
     {
         return;
     }
-
-    /// PCA transform
-    auto cpu_img = GetImageData(opt_entity.value());
-    auto LoadDataImg = [&](std::size_t i) -> CpuMatrix { return cpu_img; };
-
     const std::size_t k_bands = opt_pca_settings.value().selected_bands;
+    auto cpu_img = GetImageData(opt_entity.value());
+    auto LoadDataImg = [=](std::size_t i) -> CpuMatrix { return cpu_img; };
+
+    LOG_INFO("UpdatePcaImage, loading enitty id={}, pca bands={}", opt_entity.value(), k_bands);
+
+
     pca_transformed_images_ = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadDataImg, cpu_img.size.height * cpu_img.size.width, 1);
 
     assert(pca_transformed_images_.size() == 1);

@@ -775,8 +775,8 @@ std::vector<StatisticalParameters> GetStatistics(const CpuMatrix& cpu_img)
     CudaAssert(cudaMemcpy(img.data, cpu_img.data.get(), img.bands_height * img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
     CudaAssert(cudaMemset(mean.data, 0, mean.bands_height * mean.pixels_width * sizeof(float)));
 
-    dim3 threads_sum{32, 32};
-    dim3 blocks_sum{static_cast<unsigned int>(img.pixels_width / 32 + 1), static_cast<unsigned int>(img.bands_height / 32 + 1)};
+    dim3 threads_sum{1024};
+    dim3 blocks_sum{static_cast<unsigned int>(img.bands_height/ 32 + 1)};
 
     dim3 threads_division{1, 1024};
     dim3 blocks_division{1, static_cast<unsigned int>(mean.bands_height/ 32 + 1)};
