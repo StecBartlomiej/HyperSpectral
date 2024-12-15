@@ -3,15 +3,16 @@
 
 #include <vector>
 #include <span>
+#include <string>
 
 
 struct Node
 {
-    std::size_t idx_left;
-    std::size_t idx_right;
-
     std::size_t attribute_idx;
     float threshold;
+
+    Node *left;
+    Node *right;
 };
 
 [[nodsicard]] bool IsLeaf(const Node &node) noexcept;
@@ -35,15 +36,25 @@ struct TreeTest
 class Tree
 {
 public:
+    ~Tree();
+
     void Train(const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t class_count);
 
-private:
-    void TrainNode(Node root, const ObjectList &object_list, const std::vector<uint32_t> &object_classes);
+    void Print();
 
 private:
-    std::vector<Node> nodes_{};
+    void TrainNode(Node *node, const ObjectList &object_list, const std::vector<uint32_t> &object_classes);
+
+    void PrintNode(const std::string &prefix, const Node *node, bool isLeft);
+
+private:
+    Node *root{};
     std::size_t attributes_count_ = 0;
     std::size_t class_count_ = 0;
 };
+
+void FreeNodes(Node *node);
+
+void printBT(Node node);
 
 #endif //CLASSIFICATION_HPP

@@ -6,10 +6,14 @@
 #include <cmath>
 #include <algorithm>
 
+#include <iostream>
 
-bool IsLeaf(const Node &node) noexcept
+#include "spdlog/pattern_formatter.h"
+
+
+bool IsLeaf(const Node *node) noexcept
 {
-    return node.idx_left == 0 && node.idx_right == 0;
+    return node->left == nullptr && node->right == nullptr;
 }
 
 AttributeList GetAttributes(const ObjectList &object_list, std::size_t object_idx)
@@ -32,7 +36,10 @@ std::vector<float> GetSortedAttributeList(const ObjectList &object_list, std::si
     return attribute_values;
 }
 
-
+Tree::~Tree()
+{
+    FreeNodes(root);
+}
 
 void Tree::Train(const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t class_count)
 {
@@ -41,26 +48,34 @@ void Tree::Train(const ObjectList &object_list, const std::vector<uint32_t> &obj
 
     class_count_ = class_count;
     attributes_count_ = object_list.front().size();
-    nodes_.clear();
 
-    Node root{};
-    nodes_.push_back(root);
+    FreeNodes(root);
+
+    root = new Node{};
 
     LOG_INFO("Training decision tree");
     TrainNode(root, object_list, object_class);
     LOG_INFO("Ended training decision tree");
 }
 
-void Tree::TrainNode(Node root, const ObjectList &object_list, const std::vector<uint32_t> &object_classes)
+void Tree::Print()
+{
+    PrintNode("", root, false);
+}
+
+void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vector<uint32_t> &object_classes)
 {
     const bool has_all_of = std::all_of(object_classes.begin(), object_classes.end(),
                 [first_class=object_classes.front()](const uint32_t class_idx){ return first_class == class_idx; });
     if (has_all_of)
     {
         LOG_INFO("All object have the same class, existing");
-        root.attribute_idx = object_classes.front();
+        root->attribute_idx = object_classes.front();
         return;
     }
+
+    root->left = new Node{};
+    root->right = new Node{};
 
     TreeTest best_test{std::numeric_limits<float>::min(), 0, 0};
 
@@ -119,7 +134,6 @@ void Tree::TrainNode(Node root, const ObjectList &object_list, const std::vector
             float gain_d1_d2 = ((count_d1 / count_D) * info_d1) + ((count_d2 / count_D) * info_d2);
             float info_gain = info_D - gain_d1_d2;
 
-            // LOG_INFO("Att_idx: {}, threshold: {}, info: {}", attr_idx, threshold, info_gain);
 
             if (best_test.information_gain < info_D)
             {
@@ -131,17 +145,8 @@ void Tree::TrainNode(Node root, const ObjectList &object_list, const std::vector
     }
 
     LOG_INFO("Best test for current node, attribute_idx:{}, threshold:{}", best_test.attribute_idx, best_test.threshold);
-    root.attribute_idx = best_test.attribute_idx;
-    root.threshold = best_test.threshold;
-
-    Node left{};
-    Node right{};
-
-    nodes_.push_back(left);
-    root.idx_left = nodes_.size() - 1;
-
-    nodes_.push_back(right);
-    root.idx_right = nodes_.size() - 1;
+    root->attribute_idx = best_test.attribute_idx;
+    root->threshold = best_test.threshold;
 
 
     // Split Value
@@ -153,7 +158,7 @@ void Tree::TrainNode(Node root, const ObjectList &object_list, const std::vector
 
     for (std::size_t i = 0; i < object_list.size(); ++i)
     {
-        if (object_list[i][root.attribute_idx] <= root.threshold)
+        if (object_list[i][root->attribute_idx] <= root->threshold)
         {
             left_obj.push_back(object_list[i]);
             left_obj_class.push_back(object_classes[i]);
@@ -168,12 +173,47 @@ void Tree::TrainNode(Node root, const ObjectList &object_list, const std::vector
     if (!left_obj.empty())
     {
         LOG_INFO("Running left node");
-        TrainNode(left, left_obj, left_obj_class);
+        TrainNode(root->left, left_obj, left_obj_class);
     }
 
     if (!right_obj.empty())
     {
         LOG_INFO("Running right node");
-        TrainNode(right, right_obj, right_obj_class);
+        TrainNode(root->right, right_obj, right_obj_class);
     }
 }
+
+void Tree::PrintNode(const std::string &prefix, const Node *node, bool isLeft)
+{
+    std::cout << prefix;
+    std::cout << (isLeft ? "├──" : "└──" );
+
+    // print the value of the node
+    std::cout << node->attribute_idx << " " << node->threshold << std::endl;
+
+    // enter the next tree level - left and right branch
+
+    if (node->left)
+    {
+        PrintNode(prefix + (isLeft ? "│   " : "    "), node->left, true);
+    }
+
+    if (node->right)
+    {
+        PrintNode(prefix + (isLeft ? "│   " : "    "), node->right, false);
+    }
+}
+
+void FreeNodes(Node *node)
+{
+    if (node == nullptr)
+    {
+        return;
+    }
+
+    FreeNodes(node->left);
+    FreeNodes(node->right);
+
+    delete node;
+}
+

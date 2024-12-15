@@ -988,6 +988,7 @@ void MainWindow::RunAllButton()
 
     Tree tree{};
     tree.Train(objects, obj_classes, class_count);
+    tree.Print();
 
     const auto end = std::chrono::high_resolution_clock::now();
     LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
