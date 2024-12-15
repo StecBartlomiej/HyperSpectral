@@ -15,6 +15,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spdlog)
 
+# ============================================
+FetchContent_Declare(
+        cereal
+        GIT_REPOSITORY https://github.com/USCiLab/cereal
+        GIT_TAG        v1.3.2
+)
+
+FetchContent_GetProperties(cereal)
+if(NOT cereal_POPULATED)
+    FetchContent_Populate(cereal)
+endif()
 
 # ==========================================
 

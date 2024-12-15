@@ -12,6 +12,9 @@
 #include <cusolverDn.h>
 #include <fstream>
 
+#include <cereal/types/vector.hpp>
+
+
 struct CpuMatrix;
 
 [[nodiscard]] Entity CreateImage(const FilesystemPaths &paths);
@@ -122,6 +125,14 @@ struct CpuMatrix
     std::shared_ptr<float[]> data;
 
     Matrix GetMatrix() const;
+
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        const auto [width, height, depth] = size;
+        std::vector<float> img_data{data.get(), data.get() + width * height * depth};
+        archive(size, CEREAL_NVP(img_data));
+    }
 };
 
 
@@ -209,6 +220,18 @@ struct StatisticalParameters
     float variance;
     float skewness;
     float kurtosis;
+
+
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        archive(
+            CEREAL_NVP(mean),
+            CEREAL_NVP(variance),
+            CEREAL_NVP(skewness),
+            CEREAL_NVP(kurtosis)
+            );
+    }
 };
 
 __global__ void CalculateFourMovements(Matrix img, Matrix result);

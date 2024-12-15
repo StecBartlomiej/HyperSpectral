@@ -2,6 +2,7 @@
 #define COMPONENTS_HPP
 
 #include <filesystem>
+#include <cereal/cereal.hpp>
 
 
 struct FilesystemPaths
@@ -15,6 +16,15 @@ struct ImageSize
     uint32_t width;
     uint32_t height;
     uint32_t depth;
+
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        archive(
+            CEREAL_NVP(width),
+            CEREAL_NVP(height),
+            CEREAL_NVP(depth));
+    }
 };
 
 struct TreeAttributes
