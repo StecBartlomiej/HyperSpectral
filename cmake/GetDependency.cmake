@@ -122,3 +122,31 @@ if(NOT glad_POPULATED)
 #    glad_add_library(glad REPRODUCIBLE EXCLUDE_FROM_ALL LOADER API gl:core=3.3 EXTENSIONS GL_ARB_bindless_texture GL_EXT_texture_compression_s3tc)
     glad_add_library(glad_gl_core_43 STATIC REPRODUCIBLE LOADER API gl:core=3.3)
 endif()
+
+# ==========================================
+
+FetchContent_Declare(
+        imgui_node
+        GIT_REPOSITORY https://github.com/Nelarius/imnodes
+        GIT_TAG        v0.5
+)
+
+FetchContent_GetProperties(imgui_node)
+
+if(NOT imgui_node_POPULATED)
+    message("Fetching imgui_node")
+    FetchContent_Populate(imgui_node)
+
+    add_library(imgui_node
+            ${imgui_node_SOURCE_DIR}/imnodes.cpp
+    )
+
+    target_include_directories(imgui_node PUBLIC
+            ${imgui_node_SOURCE_DIR}
+            ${glfw_SOURCE_DIR}/include
+    )
+
+    target_compile_definitions(imgui_node PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
+
+    target_link_libraries(imgui_node PRIVATE imgui)
+endif()
