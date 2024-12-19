@@ -40,11 +40,15 @@ public:
 
     void Train(const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t class_count);
 
+    std::vector<uint32_t> Classify(const ObjectList &object_list);
+
     [[nodiscard]] const Node* GetRoot() const { return root; }
 
     // void Print();
 
 private:
+    [[nodiscard]] uint32_t ClassifyObject(const Node *root, const AttributeList &attributes);
+
     void TrainNode(Node *node, const ObjectList &object_list, const std::vector<uint32_t> &object_classes);
 
     void PrintNode(const std::string &prefix, const Node *node, bool isLeft);

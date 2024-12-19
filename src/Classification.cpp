@@ -58,10 +58,42 @@ void Tree::Train(const ObjectList &object_list, const std::vector<uint32_t> &obj
     LOG_INFO("Ended training decision tree");
 }
 
+std::vector<uint32_t> Tree::Classify(const ObjectList &object_list)
+{
+    std::vector<uint32_t> identified_class{};
+    identified_class.reserve(object_list.size());
+
+    for (const auto &attributes: object_list)
+    {
+        auto result = ClassifyObject(root, attributes);
+        identified_class.push_back(result);
+    }
+
+    return identified_class;
+}
+
 // void Tree::Print()
 // {
 //     PrintNode("", root, false);
 // }
+
+uint32_t Tree::ClassifyObject(const Node *root, const AttributeList &attributes)
+{
+    if (IsLeaf(root))
+    {
+        return root->attribute_idx;
+    }
+
+    const auto obj_value = attributes[root->attribute_idx];
+
+    if (obj_value > root->threshold)
+    {
+        assert(root->right != nullptr);
+        return ClassifyObject(root->right, attributes);
+    }
+    assert(root->left != nullptr);
+    return ClassifyObject(root->left, attributes);
+}
 
 void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vector<uint32_t> &object_classes)
 {
