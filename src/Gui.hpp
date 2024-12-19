@@ -311,4 +311,6 @@ private:
 
 
 
+[[nodiscard]] const char* GetAttributeName(std::size_t idx);
+
 #endif //GUI_HPP

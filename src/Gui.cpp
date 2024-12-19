@@ -855,12 +855,28 @@ void TreeViewWindow::Show(const Node *root)
 
 void TreeViewWindow::ShowNode(const Node *root, const int input_id, const ImVec2 pos, int dy)
 {
+    assert(root != nullptr);
+
     const int curr_node_id = unique_node_id_++;
     ImNodes::BeginNode(curr_node_id);
 
-    ImGui::Text("Nr PC = %d", root->attribute_idx);
-    ImGui::Text("Próg = %f", root->threshold);
+    if (IsLeaf(root))
+    {
+        ImNodes::BeginNodeTitleBar();
+        ImGui::TextUnformatted("Liść");
+        ImNodes::EndNodeTitleBar();
 
+        ImGui::Text("Klasa %d", root->attribute_idx);
+    }
+    else
+    {
+        ImNodes::BeginNodeTitleBar();
+        ImGui::TextUnformatted("Węzeł");
+        ImNodes::EndNodeTitleBar();
+
+        ImGui::Text(GetAttributeName(root->attribute_idx));
+        ImGui::Text("Próg = %f", root->threshold);
+    }
 
     const int node_input = unique_attr_id_++;
     ImNodes::BeginInputAttribute(node_input);
@@ -1045,6 +1061,7 @@ void MainWindow::RunAllButton()
     const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
         max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
 
+    statistical_params_.clear();
     for (std::size_t i = 0; i < entities_vec.size(); ++i)
     {
         const auto &pca_object = pca_transformed_objects[i];
@@ -1158,4 +1175,17 @@ void MainWindow::UpdatePcaImage()
 
     assert(pca_transformed_images_.size() == 1);
     pca_transformed_window_.Load(pca_transformed_images_[0]);
+}
+
+const char* GetAttributeName(std::size_t idx)
+{
+    const static std::array<const char*, 4> attr_names_ = {
+        reinterpret_cast<const char*>(u8"Średnia"),
+        reinterpret_cast<const char*>(u8"Wariancja"),
+        reinterpret_cast<const char*>(u8"Skośność"),
+        reinterpret_cast<const char*>(u8"Kurtoza")
+    };
+
+    assert(idx < attr_names_.size());
+    return attr_names_[idx];
 }

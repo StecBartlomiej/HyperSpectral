@@ -15,7 +15,7 @@ struct Node
     Node *right;
 };
 
-[[nodsicard]] bool IsLeaf(const Node &node) noexcept;
+[[nodsicard]] bool IsLeaf(const Node *node) noexcept;
 
 using AttributeList = std::vector<float>;
 using ObjectList = std::vector<AttributeList>;
