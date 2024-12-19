@@ -3,6 +3,8 @@
 #include "Components.hpp"
 #include "Image.hpp"
 
+# include "imnodes.h"
+
 #include <cassert>
 #include <map>
 #include <chrono>
@@ -85,6 +87,8 @@ GLFWwindow* CreateWindow()
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImNodes::CreateContext();
+
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -797,6 +801,100 @@ void DataClassificationWindow::Load(std::vector<Entity> entities)
 }
 
 
+void TreeViewWindow::Show(const Node *root)
+{
+    ImGui::SeparatorText("Wizualizacja drzewa decyzyjnego");
+
+    ImNodes::BeginNodeEditor();
+
+    const int curr_node_id = unique_node_id_++;
+    ImNodes::BeginNode(curr_node_id);
+
+    ImNodes::BeginNodeTitleBar();
+    ImGui::TextUnformatted("Korzeń");
+    ImNodes::EndNodeTitleBar();
+
+
+    ImGui::Text("Nr PC = %d", root->attribute_idx);
+    ImGui::Text("Próg = %f", root->threshold);
+
+    // Right ?
+    const int right_node_output = unique_attr_id_++;
+    ImNodes::BeginOutputAttribute(right_node_output);
+    ImNodes::EndOutputAttribute();
+
+    ImGui::Spacing();
+
+    // Left ?
+    const int left_node_output = unique_attr_id_++;
+    ImNodes::BeginOutputAttribute(left_node_output);
+    ImNodes::EndOutputAttribute();
+
+    ImNodes::EndNode();
+
+    const auto root_pos = ImNodes::GetNodeGridSpacePos(curr_node_id);
+
+    // CALL
+    if (root->right)
+    {
+        const ImVec2 new_pos = {root_pos.x + dx, root_pos.y - start_dy};
+        ShowNode(root->right, right_node_output, new_pos, start_dy * scale_dy);
+    }
+    if (root->left)
+    {
+        const ImVec2 new_pos = {root_pos.x + dx, root_pos.y + start_dy};
+        ShowNode(root->left, left_node_output, new_pos, start_dy * scale_dy);
+    }
+
+    ImNodes::EndNodeEditor();
+
+    unique_node_id_ = 0;
+    unique_attr_id_ = 0;
+    unique_link_id_ = 0;
+}
+
+void TreeViewWindow::ShowNode(const Node *root, const int input_id, const ImVec2 pos, int dy)
+{
+    const int curr_node_id = unique_node_id_++;
+    ImNodes::BeginNode(curr_node_id);
+
+    ImGui::Text("Nr PC = %d", root->attribute_idx);
+    ImGui::Text("Próg = %f", root->threshold);
+
+
+    const int node_input = unique_attr_id_++;
+    ImNodes::BeginInputAttribute(node_input);
+    ImNodes::EndInputAttribute();
+
+    const int right_node_output = unique_attr_id_++;
+    ImNodes::BeginOutputAttribute(right_node_output);
+    ImNodes::EndOutputAttribute();
+
+    ImGui::Spacing();
+
+    const int left_node_output = unique_attr_id_++;
+    ImNodes::BeginOutputAttribute(left_node_output);
+    ImNodes::EndOutputAttribute();
+
+    ImNodes::EndNode();
+
+    ImNodes::Link(unique_link_id_++, node_input, input_id);
+
+    ImNodes::SetNodeGridSpacePos(curr_node_id, pos);
+
+    if (root->right)
+    {
+        const ImVec2 new_pos = {pos.x + dx, pos.y - dy};
+        ShowNode(root->right, right_node_output, new_pos, dy * scale_dy);
+    }
+    if (root->left)
+    {
+        const ImVec2 new_pos = {pos.x + dx, pos.y + dy};
+        ShowNode(root->left, left_node_output, new_pos, dy * scale_dy);
+    }
+}
+
+
 void MainWindow::Show()
 {
     ImGui::Begin("Ustawienia");
@@ -868,6 +966,10 @@ void MainWindow::Show()
         pca_transformed_window_.Show();
 
         statistic_window_.Show();
+
+        ImGui::BeginChild("Drzewo decyzyjne", ImVec2(ImGui::GetContentRegionAvail().x, 600));
+        tree_view_window_.Show(tree_.GetRoot());
+        ImGui::EndChild();
     }
 
     ImGui::End();
@@ -986,9 +1088,8 @@ void MainWindow::RunAllButton()
         obj_classes.push_back(map_class.at(entity));
     }
 
-    Tree tree{};
-    tree.Train(objects, obj_classes, class_count);
-    tree.Print();
+    tree_.Train(objects, obj_classes, class_count);
+    // tree.Print();
 
     const auto end = std::chrono::high_resolution_clock::now();
     LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());

@@ -58,10 +58,10 @@ void Tree::Train(const ObjectList &object_list, const std::vector<uint32_t> &obj
     LOG_INFO("Ended training decision tree");
 }
 
-void Tree::Print()
-{
-    PrintNode("", root, false);
-}
+// void Tree::Print()
+// {
+//     PrintNode("", root, false);
+// }
 
 void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vector<uint32_t> &object_classes)
 {

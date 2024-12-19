@@ -1,6 +1,8 @@
 #ifndef GUI_HPP
 #define GUI_HPP
 
+#include <Classification.hpp>
+
 #include "Components.hpp"
 #include "EntityComponentSystem.hpp"
 #include "Image.hpp"
@@ -253,6 +255,26 @@ private:
 };
 
 
+class Node;
+
+class TreeViewWindow
+{
+public:
+    void Show(const Node *root);
+
+private:
+    void ShowNode(const Node *root, int input_id, const ImVec2 pos, int dy);
+
+private:
+    constexpr static int dx = 160;
+    constexpr static int start_dy = 140;
+    constexpr static float scale_dy = 0.85;
+    int unique_node_id_ = 0;
+    int unique_attr_id_ = 0;
+    int unique_link_id_ = 0;
+};
+
+
 class MainWindow
 {
 public:
@@ -279,7 +301,8 @@ private:
     PcaPopupWindow pca_popup_window_{};
     StatisticWindow statistic_window_{};
     DataClassificationWindow data_classification_window_{};
-
+    TreeViewWindow tree_view_window_{};
+    Tree tree_{};
     std::vector<CpuMatrix> pca_transformed_images_{};
     std::vector<std::vector<StatisticalParameters>> statistical_params_{};
     bool has_run_pca_ = false;

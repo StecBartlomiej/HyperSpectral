@@ -40,7 +40,9 @@ public:
 
     void Train(const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t class_count);
 
-    void Print();
+    [[nodiscard]] const Node* GetRoot() const { return root; }
+
+    // void Print();
 
 private:
     void TrainNode(Node *node, const ObjectList &object_list, const std::vector<uint32_t> &object_classes);

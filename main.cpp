@@ -5,6 +5,8 @@
 #include "EntityComponentSystem.hpp"
 #include "Components.hpp"
 
+#include "imnodes.h"
+
 
 Coordinator coordinator{};
 
@@ -46,9 +48,6 @@ int main()
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
 
-        // image_window_sys->Show();
-        // threshold_window_sys->Show();
-        // pca_window_sys->Show();
 
         try
         {
@@ -80,6 +79,7 @@ int main()
     // Cleanup
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
+    ImNodes::DestroyContext();
     ImGui::DestroyContext();
 
     glfwDestroyWindow(window);
