@@ -16,7 +16,4 @@ TEST_CASE("Small data test", "[DecisionTree]")
     Tree tree{};
 
     tree.Train(data, obj_class, 2);
-
-    tree.Print();
-
 }

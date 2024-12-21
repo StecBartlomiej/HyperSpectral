@@ -7,6 +7,8 @@
 #include <algorithm>
 
 #include <iostream>
+#include <numeric>
+#include <crt/host_defines.h>
 
 #include "spdlog/pattern_formatter.h"
 
@@ -247,5 +249,120 @@ void FreeNodes(Node *node)
     FreeNodes(node->right);
 
     delete node;
+}
+
+
+float KernelRbf(const AttributeList &a1, const AttributeList &a2, const float gamma)
+{
+    assert(!a1.empty() && !a2.empty());
+    assert(a1.size() == a2.size());
+
+    const float l2_squared = std::accumulate(
+        a1.data(),
+        a1.data() + a1.size(),
+        0.0f,
+        [&, i=0](float acc, float val) mutable { return acc + std::pow(val - a2[i++], 2); }
+    );
+
+    return std::exp(-gamma * l2_squared);
+}
+
+
+void SVM::Train(const ObjectList &x, const std::vector<uint32_t> &y, const KernelFunction &kernel)
+{
+    const std::size_t n = x.size();
+    bool J = true;
+    std::vector<float> alpha(x.size(), 0.f);
+    float beta = 1;
+    const float step = 0.0001f;
+    const float limit = 1e-4;
+
+    while (J)
+    {
+        J = false;
+
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            float first_term = 0.f;
+            float second_term = 0.f;
+
+            for (std::size_t j = 0; j < n; ++j)
+            {
+                const float common_value = alpha[j] * y[i] * y[j];
+
+                first_term += common_value * kernel(x[i], x[j]);
+                second_term += common_value;
+            }
+
+            const float partial_derivative = 1 - first_term - beta * second_term;
+            alpha[i] += step * partial_derivative;
+
+            if (alpha[i] < 0)
+            {
+                alpha[i] = 0;
+            }
+            else if (alpha[i] > 1)
+            {
+                alpha[i] = 1;
+            }
+            else if (abs(partial_derivative) > limit)
+            {
+                J = true;
+            }
+        }
+
+        float beta_sum = 0.f;
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            beta_sum += alpha[i] * y[i];
+        }
+        beta += 0.5f * beta_sum * beta_sum;
+    }
+
+    std::size_t count_ns = 0;
+    float b = 0.f;
+
+    for (std::size_t s = 0; s < n; ++s)
+    {
+        if (alpha[s] <= 0 || alpha[s] >= 1)
+            continue;
+        ++count_ns;
+
+        float sum_alpha = 0.f;
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            sum_alpha += alpha[i] * y[i] * kernel(x[s], x[i]);
+        }
+        b += y[s] - sum_alpha;
+    }
+    b /= static_cast<float>(count_ns);
+
+    alpha_ = alpha;
+    b_ = b;
+    x_ = x;
+    y_ = y;
+    kernel_ = kernel;
+}
+
+std::vector<uint32_t> SVM::Classify(const ObjectList &x)
+{
+    assert(!x.empty());
+    assert(!x_.empty() && !y_.empty());
+    assert(x.size() == y_.size());
+
+    std::vector<uint32_t> class_result;
+    class_result.reserve(x.size());
+
+    for (const auto &attr: x)
+    {
+        float f = 0.f;
+        for (std::size_t i = 0; i < x_.size(); ++i)
+        {
+            f += alpha_[i] * y_[i] * kernel_(x[i], attr) + b_;
+        }
+
+        class_result.push_back(f >= 0 ? 1 : 0);
+    }
+    return class_result;
 }
 

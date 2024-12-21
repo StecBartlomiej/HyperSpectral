@@ -4,6 +4,7 @@
 #include <vector>
 #include <span>
 #include <string>
+#include <functional>
 
 
 struct Node
@@ -62,5 +63,26 @@ private:
 void FreeNodes(Node *node);
 
 void printBT(Node node);
+
+[[nodiscard]] float KernelRbf(const AttributeList &a1, const AttributeList &a2, float gamma);
+
+class SVM
+{
+public:
+    using KernelFunction = std::function<float(const AttributeList&, const AttributeList &)>;
+
+    void Train(const ObjectList &x, const std::vector<uint32_t> &y, const KernelFunction &kernel);
+
+    std::vector<uint32_t> Classify(const ObjectList &x);
+
+private:
+    float b_{};
+    std::vector<float> alpha_{};
+    ObjectList x_{};
+    KernelFunction kernel_{};
+    std::vector<uint32_t> y_{};
+};
+
+
 
 #endif //CLASSIFICATION_HPP
