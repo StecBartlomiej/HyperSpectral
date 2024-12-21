@@ -503,53 +503,80 @@ std::size_t SumAll(Matrix img)
     return static_cast<std::size_t>(std::accumulate(img.data, img.data + img.pixels_width + img.pixels_width * (img.bands_height - 1), 0.f));
 }
 
-__global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img)
+__global__ void ConcatNeighboursBand(Matrix old_img, ImageSize old_size, Matrix new_img, ImageSize new_size)
 {
-    const auto x = blockIdx.x * blockDim.x + threadIdx.x + 1;
-    const auto y = blockIdx.y * blockDim.y + threadIdx.y + 1;
+    static constexpr std::size_t up_left_offset =   1;
+    static constexpr std::size_t up_center_offset = 2;
+    static constexpr std::size_t up_right_offset =  3;
 
-    if (x < old_img.pixels_width - 2 && y < old_img.bands_height - 2)
+    static constexpr std::size_t mid_left_offset =  4;
+    static constexpr std::size_t mid_right_offset = 5;
+
+    static constexpr std::size_t down_left_offset =   6;
+    static constexpr std::size_t down_center_offset = 7;
+    static constexpr std::size_t down_right_offset =  8;
+
+    const auto i = blockIdx.x * blockDim.x + threadIdx.x; // [0, old_pixel]
+    const auto band = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (i < new_img.pixels_width && band < old_img.bands_height)
     {
-        const auto up_left_corn = GetElement(old_img, y - 1, x - 1);
-        const auto up_center = GetElement(old_img, y, x - 1);
-        const auto up_right_corn = GetElement(old_img, y + 1, x - 1);
+        const int curr_height = static_cast<int>(i / new_size.width);
 
-        const auto mid_left = GetElement(old_img, y - 1, x);
-        const auto mid_center = GetElement(old_img, y, x);
-        const auto mid_right = GetElement(old_img, y + 1, x);
+        // map position of new pixel to old imag
+        const auto old_i = i + old_size.width + (curr_height * 2) + 1;
 
-        const auto down_left_corn = GetElement(old_img, y - 1, x + 1);
-        const auto down_center = GetElement(old_img, y, x + 1);
-        const auto down_right_corn = GetElement(old_img, y + 1, x + 1);
+        // Band is constant because the change is only in the image position
+        const auto up_left = GetElement(old_img, band,  old_i - old_size.width - 1);
+        const auto up_center = GetElement(old_img, band, old_i - old_size.width);
+        const auto up_right = GetElement(old_img, band, old_i - old_size.width + 1);
 
-        SetElement(new_img, y - 1, x - 1, up_left_corn);
-        SetElement(new_img, y - 1, x, up_center);
-        SetElement(new_img, y - 1, x + 1, up_right_corn);
+        const auto mid_left = GetElement(old_img, band, old_i - 1);
+        const auto mid_center = GetElement(old_img, band, old_i);
+        const auto mid_right = GetElement(old_img, band, old_i + 1);
 
-        SetElement(new_img, y, x - 1, mid_left);
-        SetElement(new_img, y, x, mid_center);
-        SetElement(new_img, y, x + 1, mid_right);
+        const auto down_left = GetElement(old_img, band, old_i + old_size.width - 1);
+        const auto down_center = GetElement(old_img, band, old_i + old_size.width);
+        const auto down_right = GetElement(old_img, band, old_i + old_size.width + 1);
 
-        SetElement(new_img, y + 1, x - 1, down_left_corn);
-        SetElement(new_img, y + 1, x, down_center);
-        SetElement(new_img, y + 1, x + 1, down_right_corn);
+        const int old_bands = old_img.bands_height;
+
+        SetElement(new_img, band, i, mid_center);
+        // printf("Center i=%d, old_i=%i, val=%f", i, old_i, mid_center);
+
+        // Neighbours bands
+        SetElement(new_img, band + old_bands * up_left_offset,   i, up_left);
+        SetElement(new_img, band + old_bands * up_center_offset, i, up_center);
+        SetElement(new_img, band + old_bands * up_right_offset,  i, up_right);
+
+        SetElement(new_img, band + old_bands * mid_left_offset,  i, mid_left);
+        SetElement(new_img, band + old_bands * mid_right_offset, i, mid_right);
+
+        SetElement(new_img, band + old_bands * down_left_offset,   i, down_left);
+        SetElement(new_img, band + old_bands * down_center_offset, i, down_center);
+        SetElement(new_img, band + old_bands * down_right_offset,  i, down_right);
     }
-
 }
 
-Matrix AddNeighboursBand(Matrix img)
+Matrix AddNeighboursBand(Matrix img, ImageSize size)
 {
-    Matrix new_img{img.bands_height, img.pixels_width * 8, nullptr};
+    ImageSize new_size{
+        .width = size.width - 2,
+        .height = size.height - 2,
+        .depth = size.depth * 9
+    };
+
     Matrix old_img{img.bands_height, img.pixels_width, nullptr};
+    Matrix new_img{new_size.depth, new_size.width * new_size.height, nullptr};
 
     CudaAssert(cudaMalloc(&old_img.data, old_img.bands_height * old_img.pixels_width * sizeof(float)));
     CudaAssert(cudaMalloc(&new_img.data, new_img.bands_height * new_img.pixels_width * sizeof(float)));
 
     CudaAssert(cudaMemcpy(old_img.data, img.data, old_img.bands_height * old_img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
 
-    dim3 threads_mean{32, 32};
-    dim3 blocks_mean{static_cast<unsigned int>(old_img.bands_height / 32 + 1), static_cast<unsigned int>(old_img.pixels_width / 32 + 1)};
-    ConcatNeighboursBand<<<blocks_mean, threads_mean>>>(old_img, new_img);
+    dim3 threads{64, 16};
+    dim3 blocks{static_cast<unsigned int>(new_img.pixels_width / 64 + 1), static_cast<unsigned int>(old_img.bands_height / 16 + 1)};
+    ConcatNeighboursBand<<<blocks, threads>>>(old_img, size, new_img, new_size);
 
     cudaFree(old_img.data);
 

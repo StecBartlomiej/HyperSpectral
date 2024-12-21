@@ -11,6 +11,7 @@
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
 #include <fstream>
+#include <concepts>
 
 #include <cereal/types/vector.hpp>
 
@@ -135,6 +136,30 @@ struct CpuMatrix
     }
 };
 
+template<typename Fn, typename ...Args>
+concept ReturnsMatrix = std::same_as<std::invoke_result_t<Fn, Args...>, Matrix>;
+
+template<typename Fn, Fn fn, typename... Args>
+requires ReturnsMatrix<Fn, Args...>
+[[nodiscard]]
+CpuMatrix CudaMatrixToCpu(ImageSize size, Args&&... args)
+{
+    CpuMatrix cpu_matrix{
+        size,
+        std::shared_ptr<float[]>(new float[size.width * size.height * size.depth])
+    };
+
+    Matrix matrix = fn(std::forward<Args>(args)...);
+
+    assert(matrix.data != nullptr);
+    assert(matrix.bands_height * matrix.pixels_width == size.width * size.height * size.depth);
+
+    CudaAssert(cudaMemcpy(cpu_matrix.data.get(), matrix.data, sizeof(float) * size.width * size.height * size.depth, cudaMemcpyDeviceToHost));
+    cudaFree(matrix.data);
+
+    return std::move(cpu_matrix);
+}
+
 
 /**
  * @brief Calculates mean of each band
@@ -205,7 +230,7 @@ struct ResultPCA
 
 __global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img);
 
-[[nodiscard]] Matrix AddNeighboursBand(Matrix img);
+[[nodiscard]] Matrix AddNeighboursBand(Matrix img, ImageSize size);
 
 [[nodiscard]] CpuMatrix GetObjectFromMask(Matrix img, Matrix mask);
 
