@@ -529,7 +529,7 @@ __global__ void ConcatNeighboursBand(Matrix old_img, ImageSize old_size, Matrix 
     const auto old_up_i = old_i - old_size.width;
     const auto old_down_i = old_i + old_size.width;
 
-    static constexpr int max_x_threads = 64;
+    static constexpr int max_x_threads = 1024;
     static constexpr int block_height = 3;
     static constexpr int max_block_width = max_x_threads  + 2;
 
@@ -593,7 +593,7 @@ __global__ void ConcatNeighboursBand(Matrix old_img, ImageSize old_size, Matrix 
     SetElement(new_img, band + band_offset * down_right_offset,  i, down_right);
 }
 
-Matrix AddNeighboursBand(Matrix img, ImageSize size)
+CpuMatrix AddNeighboursBand(Matrix img, ImageSize size)
 {
     ImageSize new_size{
         .width = size.width - 2,
@@ -609,17 +609,26 @@ Matrix AddNeighboursBand(Matrix img, ImageSize size)
 
     CudaAssert(cudaMemcpy(old_img.data, img.data, old_img.bands_height * old_img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
 
-    dim3 threads{64, 1, 8};
+    dim3 threads{1024, 1, 1};
     dim3 blocks{
-        static_cast<unsigned int>(new_size.width / 16 + 1),
+        static_cast<unsigned int>(new_size.width / 1024 + 1),
         static_cast<unsigned int>(new_size.height),
-        static_cast<unsigned int>(old_img.bands_height / 8 + 1)
+        static_cast<unsigned int>(old_img.bands_height)
     };
     ConcatNeighboursBand<<<blocks, threads>>>(old_img, size, new_img, new_size);
 
-    cudaFree(old_img.data);
 
-    return new_img;
+    CpuMatrix cpu_matrix{
+        new_size,
+        std::shared_ptr<float[]>(new float[new_size.width * new_size.height * new_size.depth])
+    };
+
+    CudaAssert(cudaMemcpy(cpu_matrix.data.get(), new_img.data, sizeof(float) * new_img.bands_height * new_img.pixels_width, cudaMemcpyDeviceToHost));
+
+    cudaFree(old_img.data);
+    cudaFree(new_img.data);
+
+    return std::move(cpu_matrix);
 }
 
 __global__ void MulImages(Matrix img, std::size_t* position, std::size_t pos_size, Matrix output)

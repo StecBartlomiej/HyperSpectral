@@ -614,47 +614,48 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
         11, 12, 13, 14, 15,
         16, 17, 18, 19, 20,
 
-         1,  2,  3,  4,  5, // Depth 2
-         6,  7,  8,  9, 10,
-        11, 12, 13, 14, 15,
-        16, 17, 18, 19, 20
+         -1,  -2,  -3,  -4,  -5, // Depth 2
+         -6,  -7,  -8,  -9, -10,
+        -11, -12, -13, -14, -15,
+        -16, -17, -18, -19, -20
     };
     ImageSize old_size = {5, 4, 2};
     ImageSize new_size = {5-2, 4-2, 2 * 9};
 
     Matrix mat{.bands_height = 2, .pixels_width = 20, .data = old_img};
 
-    const CpuMatrix cpu_mat = CudaMatrixToCpu<decltype(&AddNeighboursBand), &AddNeighboursBand>(new_size, mat, old_size);
+    const CpuMatrix cpu_mat = AddNeighboursBand(mat, old_size);
+
     REQUIRE(cpu_mat.data != nullptr);
 
     float expected_img[] = {
         // Mid center
          7,  8,  9, 12, 13, 14, // Band 1
-         7,  8,  9, 12, 13, 14, // Band2
+         -7,  -8,  -9, -12, -13, -14, // Band2
         // Up left
          1,  2,  3,  6,  7,  8,
-         1,  2,  3,  6,  7,  8,
+         -1,  -2,  -3,  -6,  -7,  -8,
         // Up mid
          2,  3,  4,  7,  8,  9,
-         2,  3,  4,  7,  8,  9,
+         -2,  -3,  -4,  -7,  -8,  -9,
         // Up right
          3,  4,  5,  8,  9,  10,
-         3,  4,  5,  8,  9,  10,
+         -3,  -4,  -5,  -8,  -9,  -10,
         // Mid left
         6, 7, 8,  11, 12, 13,
-        6, 7, 8,  11, 12, 13,
+        -6, -7, -8,  -11, -12, -13,
         // Mid right
         8, 9, 10, 13, 14, 15,
-        8, 9, 10, 13, 14, 15,
+        -8, -9, -10, -13, -14, -15,
         // Down left
         11, 12, 13, 16, 17, 18,
-        11, 12, 13, 16, 17, 18,
+        -11, -12, -13, -16, -17, -18,
         // Down mid
          12, 13, 14, 17, 18, 19,
-         12, 13, 14, 17, 18, 19,
+         -12, -13, -14, -17, -18, -19,
         // Down right
         13, 14, 15, 18, 19, 20,
-        13, 14, 15, 18, 19, 20
+        -13, -14, -15, -18, -19, -20
     };
 
     for (std::size_t i = 0; i < new_size.width * new_size.height * new_size.depth; ++i)

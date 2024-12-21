@@ -283,13 +283,15 @@ public:
     void Show();
 
 private:
-    void RunAllButton();
+    void RunTrain();
 
     void ShowPopupsWindow();
 
     void UpdateThresholdImage();
 
     void UpdatePcaImage();
+
+    void ImagePreprocessing();
 
 private:
     ImageViewWindow threshold_window_{};
@@ -305,8 +307,11 @@ private:
     Tree tree_{};
     std::vector<CpuMatrix> pca_transformed_images_{};
     std::vector<std::vector<StatisticalParameters>> statistical_params_{};
-    bool has_run_pca_ = false;
     ResultPCA result_pca_{};
+    ImageSize img_size_{};
+    bool has_run_pca_ = false;
+    bool has_run_model_ = false;
+    bool add_neighbour_bands_ = false;
 };
 
 

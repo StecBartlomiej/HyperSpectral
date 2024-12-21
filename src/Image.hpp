@@ -230,7 +230,7 @@ struct ResultPCA
 
 __global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img);
 
-[[nodiscard]] Matrix AddNeighboursBand(Matrix img, ImageSize size);
+[[nodiscard]] CpuMatrix AddNeighboursBand(Matrix img, ImageSize size);
 
 [[nodiscard]] CpuMatrix GetObjectFromMask(Matrix img, Matrix mask);
 
