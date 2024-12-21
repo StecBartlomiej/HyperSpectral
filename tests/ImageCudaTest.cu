@@ -620,7 +620,7 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
         16, 17, 18, 19, 20
     };
     ImageSize old_size = {5, 4, 2};
-    ImageSize new_size = {5-2, 4-2, 2 + 2 * 8};
+    ImageSize new_size = {5-2, 4-2, 2 * 9};
 
     Matrix mat{.bands_height = 2, .pixels_width = 20, .data = old_img};
 
@@ -659,7 +659,6 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
 
     for (std::size_t i = 0; i < new_size.width * new_size.height * new_size.depth; ++i)
     {
-        // printf("%f\n", cpu_mat.data[i]);
         REQUIRE(cpu_mat.data[i] == expected_img[i]);
     }
 

@@ -516,46 +516,81 @@ __global__ void ConcatNeighboursBand(Matrix old_img, ImageSize old_size, Matrix 
     static constexpr std::size_t down_center_offset = 7;
     static constexpr std::size_t down_right_offset =  8;
 
-    const auto i = blockIdx.x * blockDim.x + threadIdx.x; // [0, old_pixel]
-    const auto band = blockIdx.y * blockDim.y + threadIdx.y;
+    // i - pixel positing on new img
+    const auto x = blockIdx.x * blockDim.x + threadIdx.x;
+    const auto y = blockIdx.y * blockDim.y + threadIdx.y;
+    const auto band = blockIdx.z * blockDim.z + threadIdx.z;
 
-    if (i < new_img.pixels_width && band < old_img.bands_height)
+    if (x >= new_size.width || y >= new_size.height || band >= old_img.bands_height)
+        return;
+
+    const auto i = y * new_size.width + x;
+    const auto old_i = i + old_size.width + (y * 2) + 1;
+    const auto old_up_i = old_i - old_size.width;
+    const auto old_down_i = old_i + old_size.width;
+
+    static constexpr int max_x_threads = 64;
+    static constexpr int block_height = 3;
+    static constexpr int max_block_width = max_x_threads  + 2;
+
+    const auto block_range = blockIdx.x * blockDim.x;
+    const int block_width = (block_range + max_x_threads < new_size.width) ? max_block_width : (new_size.width - block_range) + 2;
+
+    __shared__ float temp[max_block_width * block_height];
+
+    // Fill upper row, without corners
+    temp[threadIdx.x + 1] = GetElement(old_img, band, old_up_i);
+
+    // Fill center, without corners
+    temp[block_width + 1 + threadIdx.x] = GetElement(old_img, band, old_i);
+
+    // Fill lower row, without corners
+    temp[block_width * 2 + 1 + threadIdx.x] = GetElement(old_img, band, old_down_i);
+
+    // Fill corners
+    if (threadIdx.x == 0)
     {
-        const int curr_height = static_cast<int>(i / new_size.width);
-
-        // map position of new pixel to old imag
-        const auto old_i = i + old_size.width + (curr_height * 2) + 1;
-
-        // Band is constant because the change is only in the image position
-        const auto up_left = GetElement(old_img, band,  old_i - old_size.width - 1);
-        const auto up_center = GetElement(old_img, band, old_i - old_size.width);
-        const auto up_right = GetElement(old_img, band, old_i - old_size.width + 1);
-
-        const auto mid_left = GetElement(old_img, band, old_i - 1);
-        const auto mid_center = GetElement(old_img, band, old_i);
-        const auto mid_right = GetElement(old_img, band, old_i + 1);
-
-        const auto down_left = GetElement(old_img, band, old_i + old_size.width - 1);
-        const auto down_center = GetElement(old_img, band, old_i + old_size.width);
-        const auto down_right = GetElement(old_img, band, old_i + old_size.width + 1);
-
-        const int old_bands = old_img.bands_height;
-
-        SetElement(new_img, band, i, mid_center);
-        // printf("Center i=%d, old_i=%i, val=%f", i, old_i, mid_center);
-
-        // Neighbours bands
-        SetElement(new_img, band + old_bands * up_left_offset,   i, up_left);
-        SetElement(new_img, band + old_bands * up_center_offset, i, up_center);
-        SetElement(new_img, band + old_bands * up_right_offset,  i, up_right);
-
-        SetElement(new_img, band + old_bands * mid_left_offset,  i, mid_left);
-        SetElement(new_img, band + old_bands * mid_right_offset, i, mid_right);
-
-        SetElement(new_img, band + old_bands * down_left_offset,   i, down_left);
-        SetElement(new_img, band + old_bands * down_center_offset, i, down_center);
-        SetElement(new_img, band + old_bands * down_right_offset,  i, down_right);
+        temp[0] = GetElement(old_img, band, old_up_i - 1);
+        temp[block_width] = GetElement(old_img, band, old_i - 1);
+        temp[block_width * 2] = GetElement(old_img, band, old_down_i - 1);
     }
+    if (threadIdx.x == block_width - 3) // Get last thread
+    {
+        temp[block_width - 1] = GetElement(old_img, band, old_up_i + 1);
+        temp[block_width * 2 - 1] = GetElement(old_img, band, old_i + 1);
+        temp[block_width * 3 - 1] = GetElement(old_img, band, old_down_i + 1);
+    }
+    __syncthreads();
+
+    const auto temp_i = threadIdx.x + 1;
+
+    const auto up_left =   temp[temp_i - 1];
+    const auto up_center = temp[temp_i];
+    const auto up_right =  temp[temp_i + 1];
+
+    const auto mid_left =   temp[block_width + temp_i - 1];
+    const auto mid_center = temp[block_width + temp_i];
+    const auto mid_right =  temp[block_width + temp_i + 1];
+
+    const auto down_left =   temp[block_width * 2 + temp_i - 1];
+    const auto down_center = temp[block_width * 2 + temp_i];
+    const auto down_right =  temp[block_width * 2 + temp_i + 1];
+
+    const int band_offset = old_img.bands_height;
+
+    SetElement(new_img, band, i, mid_center);
+
+    // Neighbours bands
+    SetElement(new_img, band + band_offset * up_left_offset,   i, up_left);
+    SetElement(new_img, band + band_offset * up_center_offset, i, up_center);
+    SetElement(new_img, band + band_offset * up_right_offset,  i, up_right);
+
+    SetElement(new_img, band + band_offset * mid_left_offset,  i, mid_left);
+    SetElement(new_img, band + band_offset * mid_right_offset, i, mid_right);
+
+    SetElement(new_img, band + band_offset * down_left_offset,   i, down_left);
+    SetElement(new_img, band + band_offset * down_center_offset, i, down_center);
+    SetElement(new_img, band + band_offset * down_right_offset,  i, down_right);
 }
 
 Matrix AddNeighboursBand(Matrix img, ImageSize size)
@@ -574,8 +609,12 @@ Matrix AddNeighboursBand(Matrix img, ImageSize size)
 
     CudaAssert(cudaMemcpy(old_img.data, img.data, old_img.bands_height * old_img.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
 
-    dim3 threads{64, 16};
-    dim3 blocks{static_cast<unsigned int>(new_img.pixels_width / 64 + 1), static_cast<unsigned int>(old_img.bands_height / 16 + 1)};
+    dim3 threads{64, 1, 8};
+    dim3 blocks{
+        static_cast<unsigned int>(new_size.width / 16 + 1),
+        static_cast<unsigned int>(new_size.height),
+        static_cast<unsigned int>(old_img.bands_height / 8 + 1)
+    };
     ConcatNeighboursBand<<<blocks, threads>>>(old_img, size, new_img, new_size);
 
     cudaFree(old_img.data);
