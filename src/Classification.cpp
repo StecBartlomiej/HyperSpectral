@@ -169,7 +169,7 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
             float info_gain = info_D - gain_d1_d2;
 
 
-            if (best_test.information_gain < info_D)
+            if (best_test.information_gain < info_gain)
             {
                 best_test.information_gain = info_gain;
                 best_test.threshold = threshold;
@@ -178,7 +178,8 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
         }
     }
 
-    LOG_INFO("Best test for current node, attribute_idx:{}, threshold:{}", best_test.attribute_idx, best_test.threshold);
+    LOG_INFO("Best test for current node, attribute_idx:{}, threshold:{}, informatinon_gain:{}",
+        best_test.attribute_idx, best_test.threshold, best_test.information_gain);
     root->attribute_idx = best_test.attribute_idx;
     root->threshold = best_test.threshold;
 

@@ -1,7 +1,7 @@
 #ifndef GUI_HPP
 #define GUI_HPP
 
-#include <Classification.hpp>
+#include "Classification.hpp"
 
 #include "Components.hpp"
 #include "EntityComponentSystem.hpp"
@@ -9,6 +9,9 @@
 
 #include <glad/gl.h>
 #include <map>
+#include "cereal/cereal.hpp"
+#include "cereal/types/vector.hpp"
+#include "cereal/types/map.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -232,6 +235,12 @@ public:
 
     void Load(Entity entity, std::vector<StatisticalParameters> param);
 
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        archive(cereal::make_nvp("Statistic values", statistics_));
+    }
+
 private:
     std::map<Entity, std::vector<StatisticalParameters>> statistics_{};
 };
@@ -255,7 +264,6 @@ private:
 };
 
 
-class Node;
 
 class TreeViewWindow
 {
@@ -282,6 +290,8 @@ public:
 
     void Show();
 
+    void SaveStatisticValues();
+
 private:
     void RunTrain();
 
@@ -305,10 +315,12 @@ private:
     DataClassificationWindow data_classification_window_{};
     TreeViewWindow tree_view_window_{};
     Tree tree_{};
+    SVM svm_{};
     std::vector<CpuMatrix> pca_transformed_images_{};
     std::vector<std::vector<StatisticalParameters>> statistical_params_{};
     ResultPCA result_pca_{};
     ImageSize img_size_{};
+    std::string_view selected_model_;
     bool has_run_pca_ = false;
     bool has_run_model_ = false;
     bool add_neighbour_bands_ = false;

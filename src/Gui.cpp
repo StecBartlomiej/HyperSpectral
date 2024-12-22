@@ -2,13 +2,16 @@
 #include "Logger.hpp"
 #include "Components.hpp"
 #include "Image.hpp"
+#include "Classification.hpp"
 
-# include "imnodes.h"
+#include "imnodes.h"
+
+#include "cereal/archives/json.hpp"
 
 #include <cassert>
 #include <map>
 #include <chrono>
-#include <Classification.hpp>
+#include <fstream>
 
 
 extern Coordinator coordinator;
@@ -815,7 +818,7 @@ void TreeViewWindow::Show(const Node *root)
     ImNodes::EndNodeTitleBar();
 
 
-    ImGui::Text("Nr PC = %d", root->attribute_idx);
+    ImGui::Text(GetAttributeName(root->attribute_idx));
     ImGui::Text("Próg = %f", root->threshold);
 
     // Right ?
@@ -972,9 +975,36 @@ void MainWindow::Show()
 
     ImGui::Spacing();
 
+
+    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Wybierz model uczenia"), selected_model_.data()))
+    {
+        constexpr static std::array<std::string_view, 2> model_names = {"Drzewo decyzyjne", "SVM"};
+
+        int i = 0;
+        for (const auto name: model_names)
+        {
+            ImGui::PushID(i);
+            if (ImGui::Selectable(name.data(), false))
+            {
+                selected_model_ = name;
+            }
+            ImGui::PopID();
+            ++i;
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Spacing();
+
     if (ImGui::Button("Uruchom uczenie"))
     {
         RunTrain();
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button("Zapisz wyniki przetwarzania"))
+    {
+        SaveStatisticValues();
     }
 
     ShowPopupsWindow();
@@ -997,6 +1027,14 @@ void MainWindow::Show()
     }
 
     ImGui::End();
+}
+
+void MainWindow::SaveStatisticValues()
+{
+    std::ofstream file{"Saved_data.json"};
+    cereal::JSONOutputArchive archive(file);
+
+    statistic_window_.serialize(archive);
 }
 
 void MainWindow::RunTrain()
@@ -1127,11 +1165,29 @@ void MainWindow::RunTrain()
     const auto map_class = data_classification_window_.GetClasses();
     const std::size_t class_count = data_classification_window_.GetClassCount();
 
-    for (auto entity : entities_vec)
+     for (auto entity : entities_vec)
     {
         obj_classes.push_back(map_class.at(entity));
     }
-    tree_.Train(objects, obj_classes, class_count);
+
+    if (selected_model_ == "Drzewo decyzyjne")
+    {
+        LOG_INFO("Running decision tree");
+        tree_.Train(objects, obj_classes, class_count);
+    }
+    else if (selected_model_ == "SVM")
+    {
+        LOG_INFO("Running SVM");
+
+        auto lambda = [](const AttributeList &a, const AttributeList &b) -> float { return KernelRbf(a, b, 0.001f); };
+        svm_.Train(objects, obj_classes, lambda);
+    }
+    else
+    {
+        LOG_ERROR("Unknown model selected");
+    }
+
+
 
     const auto end = std::chrono::high_resolution_clock::now();
     LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
