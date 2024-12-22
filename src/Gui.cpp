@@ -115,6 +115,10 @@ GLFWwindow* CreateWindow()
     io.Fonts->AddFontFromFileTTF("Roboto-Medium.ttf", 16, nullptr, ranges.Data);
     io.Fonts->Build();
 
+    ImGuiStyle &style = ImGui::GetStyle();
+    style.GrabRounding = 4.0f;
+    style.FrameRounding = 4.0f;
+
     return window;
 }
 
@@ -659,6 +663,34 @@ void PcaPopupWindow::Show()
     }
 }
 
+void SettingsPopupWindow()
+{
+    ImGuiStyle& style = ImGui::GetStyle();
+
+    static int style_idx = -1;
+    if (ImGui::Combo("Wybierz styl", &style_idx, "Ciemny\0Jasny\0"))
+    {
+        switch (style_idx)
+        {
+            case 0:
+                ImGui::StyleColorsDark();
+                style.FrameBorderSize  = 0.0f;
+            break;
+            case 1:
+                ImGui::StyleColorsLight();
+                style.FrameBorderSize  = 1.0f;
+            break;
+            default:
+                break;
+        }
+    }
+    static constexpr float min_scale = 0.5f;
+    static constexpr float max_scale = 2.0f;
+
+    ImGuiIO &io = ImGui::GetIO();
+    ImGui::DragFloat("Skala interfejsu", &io.FontGlobalScale, 0.005f, min_scale, max_scale, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+}
+
 void StatisticWindow::Show()
 {
     ImGui::SeparatorText("Parametry statystyczne");
@@ -918,14 +950,20 @@ void MainWindow::Show()
 {
     ImGui::Begin("Ustawienia");
 
+    if (ImGui::Button("Ustawienia##Ustaw_button"))
+    {
+        ImGui::OpenPopup("UstawieniaPopup");
+    }
+
+    ImGui::Spacing();
+
     if (ImGui::Button("Wczytaj dane"))
     {
         ImGui::OpenPopup("Wczytaywanie danych");
     }
 
-    ImGui::Button("Ustawienia");
-
     ImGui::Spacing();
+
     if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Wyświelt obraz"), selected_img_name_.c_str()))
     {
         for (const auto entity : data_input_window_.GetLoadedEntities())
@@ -1197,6 +1235,12 @@ void MainWindow::RunTrain()
 
 void MainWindow::ShowPopupsWindow()
 {
+   if (ImGui::BeginPopup("UstawieniaPopup"))
+   {
+       SettingsPopupWindow();
+       ImGui::EndPopup();
+   }
+
     if (ImGui::BeginPopup("Wczytaywanie danych"))
     {
         data_input_window_.Show();

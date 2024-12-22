@@ -227,6 +227,7 @@ private:
     std::optional<PcaSetting> saved_settings_ = std::nullopt;
 };
 
+void SettingsPopupWindow();
 
 class StatisticWindow
 {
