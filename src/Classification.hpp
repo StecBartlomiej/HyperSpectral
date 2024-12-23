@@ -32,12 +32,20 @@ struct TreeTest
     std::size_t attribute_idx;
 };
 
+struct TrainingTestData
+{
+    ObjectList training_data;
+    std::vector<uint32_t> training_classes;
+    ObjectList test_data;
+    std::vector<uint32_t> test_classes;
+};
 
 
 class Tree
 {
 public:
     ~Tree();
+    Tree operator=(const Tree &tree) = delete;
 
     void Train(const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t class_count);
 
@@ -84,5 +92,11 @@ private:
 };
 
 
+
+[[nodiscard]] auto KFoldGeneration(const std::vector<uint32_t> &object_class, uint32_t class_count, uint32_t k_groups=10) -> std::vector<std::vector<std::size_t>>;
+
+[[nodsicard]] TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t test_fold_idx);
+
+[[nodsicard]] TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count, float split_ratio);
 
 #endif //CLASSIFICATION_HPP

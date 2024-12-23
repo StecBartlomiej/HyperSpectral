@@ -815,7 +815,7 @@ void DataClassificationWindow::Show()
 
             ImGui::PushID(row);
 
-            ImGui::SliderInt("Liczba klas", &classes_[entity], 0, class_count_, "%d", ImGuiSliderFlags_AlwaysClamp);
+            ImGui::SliderInt("##slider_int", &classes_[entity], 0, class_count_, "%d", ImGuiSliderFlags_AlwaysClamp);
 
             ImGui::PopID();
             row++;
@@ -985,7 +985,10 @@ void MainWindow::Show()
     }
 
     ImGui::Spacing();
-    if (ImGui::Button("Progowanie"))
+
+    static constexpr ImVec2 button_size{80, 25};
+
+    if (ImGui::Button("Progowanie", button_size))
     {
         auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
         threshold_popup_window_.Load(cpu_img);
@@ -993,7 +996,7 @@ void MainWindow::Show()
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("PCA"))
+    if (ImGui::Button("PCA", button_size))
     {
         auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
         pca_popup_window_.SetMaxBands(cpu_img.size.depth);
@@ -1001,7 +1004,7 @@ void MainWindow::Show()
     }
 
     ImGui::SameLine();
-    if (ImGui::Button("Klasyfikacja"))
+    if (ImGui::Button("Klasyfikacja", button_size))
     {
         data_classification_window_.Load(data_input_window_.GetLoadedEntities());
         ImGui::OpenPopup("Klasyfikacja##Klasyfikacja_okno");
@@ -1013,8 +1016,12 @@ void MainWindow::Show()
 
     ImGui::Spacing();
 
+    ImGui::SliderInt(reinterpret_cast<const char*>(u8"K-krzyżowa walidacja"), &k_folds_,
+        1, 15, "%d", ImGuiSliderFlags_AlwaysClamp);
 
-    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Wybierz model uczenia"), selected_model_.data()))
+    ImGui::Spacing();
+
+    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Model uczenia"), selected_model_.data()))
     {
         constexpr static std::array<std::string_view, 2> model_names = {"Drzewo decyzyjne", "SVM"};
 
@@ -1077,9 +1084,14 @@ void MainWindow::SaveStatisticValues()
 
 void MainWindow::RunTrain()
 {
+    if (selected_model_.empty())
+    {
+        LOG_WARN("Select model before running classfication!");
+        return;
+    }
+
     if (selected_img_name_.empty())
     {
-        // TODO: print error message
         LOG_WARN("RunTrain: image is empty");
         return;
     }
@@ -1208,10 +1220,10 @@ void MainWindow::RunTrain()
         obj_classes.push_back(map_class.at(entity));
     }
 
+
     if (selected_model_ == "Drzewo decyzyjne")
     {
-        LOG_INFO("Running decision tree");
-        tree_.Train(objects, obj_classes, class_count);
+        RunDecisionTree(objects, obj_classes, class_count);
     }
     else if (selected_model_ == "SVM")
     {
@@ -1332,6 +1344,58 @@ void MainWindow::ImagePreprocessing()
         cpu_img_objects.push_back(cpu_object);
     }
     img_size_ = img_size_;
+}
+
+void MainWindow::RunDecisionTree(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count)
+{
+    LOG_INFO("Running decision tree");
+    std::size_t max_error = objects.size();
+
+    if (k_folds_ == 1)
+    {
+        LOG_INFO("Running with random 70-30 split");
+        const auto [training_data, training_classes, test_data, test_classes] = SplitData(objects, obj_classes, class_count, 0.7);
+        tree_.Train(training_data, training_classes, class_count);
+
+        const auto class_result = tree_.Classify(test_data);
+        const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
+                        [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+        max_error = error;
+    }
+    else
+    {
+        LOG_INFO("Running with {}-fold cross validation", k_folds_);
+        const auto folds_idx = KFoldGeneration(obj_classes, class_count, k_folds_);
+
+        Tree tree;
+
+        ObjectList best_training_data{};
+        std::vector<uint32_t> best_training_classes;
+
+        for (std::size_t k = 0; k < folds_idx.size(); ++k)
+        {
+            const auto [training_data, training_classes, test_data, test_classes] =
+                GetFold(folds_idx, objects, obj_classes, k);
+
+            tree.Train(training_data, training_classes, class_count);
+
+            const auto class_result = tree.Classify(test_data);
+
+            assert(class_result.size() == test_classes.size());
+            const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
+                            [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+
+            if (error < max_error)
+            {
+                max_error = error;
+                best_training_data = training_data;
+                best_training_classes = training_classes;
+            }
+        }
+        tree_.Train(best_training_data, best_training_classes, class_count);
+
+    }
+    LOG_INFO("Classification error for best tree: {} ", max_error);
 }
 
 const char* GetAttributeName(std::size_t idx)

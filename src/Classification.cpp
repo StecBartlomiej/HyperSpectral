@@ -8,7 +8,7 @@
 
 #include <iostream>
 #include <numeric>
-#include <crt/host_defines.h>
+#include <random>
 
 #include "spdlog/pattern_formatter.h"
 
@@ -367,3 +367,188 @@ std::vector<uint32_t> SVM::Classify(const ObjectList &x)
     return class_result;
 }
 
+std::vector<std::vector<std::size_t>> KFoldGeneration(const std::vector<uint32_t> &object_class, uint32_t class_count, uint32_t k_groups)
+{
+    assert(!object_class.empty());
+    assert(k_groups > 1);
+    assert(object_class.size() >= 2);
+
+    std::vector<uint32_t> grouped_count(class_count, 0);
+    std::vector<std::vector<std::size_t>> indexes{class_count};
+
+    for (std::size_t i = 0; i < object_class.size(); ++i)
+    {
+        const auto class_id = object_class[i];
+
+        indexes[class_id].push_back(i);
+
+        assert(class_id < class_count);
+        grouped_count[class_id] += 1;
+    }
+
+    std::size_t objects_count = object_class.size();
+    std::size_t fold_size = objects_count / k_groups;
+
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    std::vector<std::vector<std::size_t>> object_fold_idx(k_groups);
+
+    for (std::size_t i = 0; i < class_count; ++i)
+    {
+        std::shuffle(indexes[i].begin(), indexes[i].end(), g);
+    }
+
+    // 10 groups gets 1/10 size of every class randomly selected
+    for (std::size_t group_idx = 0 ; group_idx < k_groups - 1; ++group_idx)
+    {
+        for (std::size_t class_idx = 0 ; class_idx < class_count; ++class_idx)
+        {
+            const float round_div = std::round(grouped_count[class_idx] / static_cast<float>(k_groups));
+            const std::size_t current_copy_size = static_cast<std::size_t>(round_div);
+
+            const std::size_t start_idx = group_idx * current_copy_size;
+            const std::size_t end_idx = start_idx + current_copy_size;
+
+            for (std::size_t i = start_idx; i < end_idx; ++i)
+            {
+                const auto curr_idx = indexes[class_idx][i];
+                object_fold_idx[group_idx].push_back(curr_idx);
+            }
+        }
+    }
+
+    // Last group can take more or less than any group
+    const auto last_group_idx = k_groups - 1;
+    for (std::size_t class_idx = 0 ; class_idx < class_count; ++class_idx)
+    {
+        const float round_div = std::round(grouped_count[class_idx] / static_cast<float>(k_groups));
+        const std::size_t current_copy_size = static_cast<std::size_t>(round_div);
+
+        const std::size_t start_idx = last_group_idx * current_copy_size;
+        const std::size_t end_idx = indexes[class_idx].size();
+
+        for (std::size_t i = start_idx; i < end_idx; ++i)
+        {
+            const auto curr_idx = indexes[class_idx][i];
+            object_fold_idx[last_group_idx].push_back(curr_idx);
+        }
+    }
+
+    return object_fold_idx;
+}
+
+TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t test_fold_idx)
+{
+    const auto test_fold = folds[test_fold_idx];
+
+    ObjectList training_data{};
+    std::vector<uint32_t> training_classes;
+
+    ObjectList test_data{};
+    std::vector<uint32_t> test_classes;
+
+    training_data.reserve(test_fold.size() * 10);
+    test_data.reserve(test_fold.size());
+
+    for (auto j = 0; j < folds.size(); ++j)
+    {
+        const auto curr_fold = folds[j];
+
+        for (auto l = 0; l < curr_fold.size(); ++l)
+        {
+            const auto idx = curr_fold[l];
+            const auto &curr_object = object_list[idx];
+            const auto curr_class  = object_class[idx];
+
+            if (j != test_fold_idx)
+            {
+                training_data.push_back(curr_object);
+                training_classes.push_back(curr_class);
+            }
+            else
+            {
+                test_data.push_back(curr_object);
+                test_classes.push_back(curr_class);
+            }
+        }
+    }
+
+    return TrainingTestData{
+        .training_data = training_data,
+        .training_classes = training_classes,
+        .test_data = test_data,
+        .test_classes = test_classes,
+    };
+}
+
+TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count,
+    float split_ratio)
+{
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    std::vector<uint32_t> grouped_count(class_count, 0);
+    std::vector<std::vector<std::size_t>> indexes{class_count};
+
+    for (std::size_t i = 0; i < object_classes.size(); ++i)
+    {
+        const auto class_id = object_classes[i];
+
+        indexes[class_id].push_back(i);
+
+        assert(class_id < class_count);
+        grouped_count[class_id] += 1;
+    }
+
+    for (std::size_t i = 0; i < class_count; ++i)
+    {
+        std::shuffle(indexes[i].begin(), indexes[i].end(), g);
+    }
+
+
+    TrainingTestData data{};
+
+    static constexpr std::size_t train_start_idx = 0;
+    const std::size_t train_end_idx = std::round(object_classes.size() * split_ratio);
+
+    const auto test_start_idx = train_end_idx;
+    const auto test_end_idx = object_classes.size();
+
+    for (auto i = train_start_idx; i < train_end_idx; ++i)
+    {
+        for (auto j = 0; j < indexes.size(); ++j)
+        {
+            const auto &curr_index = indexes[j];
+            const auto end_idx =  std::round(curr_index.size() * split_ratio);
+
+            for (auto k = 0; k < end_idx; ++k)
+            {
+                const auto idx = curr_index[k];
+
+                data.training_data.push_back(object_list[idx]);
+                data.training_classes.push_back(object_classes[idx]);
+            }
+        }
+    }
+
+    for (auto i = test_start_idx; i < test_end_idx; ++i)
+    {
+        for (auto j = 0; j < indexes.size(); ++j)
+        {
+            const auto &curr_index = indexes[j];
+            const auto end_idx =  std::round(curr_index.size() * split_ratio);
+
+            for (auto k = end_idx; k < curr_index.size(); ++k)
+            {
+                const auto idx = curr_index[k];
+
+                data.test_data.push_back(object_list[idx]);
+                data.test_classes.push_back(object_classes[idx]);
+            }
+        }
+    }
+
+    return data;
+}

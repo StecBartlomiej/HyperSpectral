@@ -662,5 +662,25 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
     {
         REQUIRE(cpu_mat.data[i] == expected_img[i]);
     }
+}
 
+TEST_CASE("K-Fold Validation", "[CUDA]")
+{
+    std::vector<uint32_t> object_class = {
+        0, 0, 0, // 3
+        1, 1, 1, 1, 1, 1, 1, // 7
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 11
+        3, 3, 3, 3, 3, // 5
+    };
+
+    auto result = KFoldGeneration(object_class, 4, 3);
+
+    // for (auto group : result)
+    // {
+    //     for (auto x : group)
+    //     {
+    //         printf("%llu:%u  ", x, object_class[x]);
+    //     }
+    //     printf("\n");
+    // }
 }

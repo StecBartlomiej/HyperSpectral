@@ -304,6 +304,8 @@ private:
 
     void ImagePreprocessing();
 
+    void RunDecisionTree(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count);
+
 private:
     ImageViewWindow threshold_window_{};
     std::string selected_img_name_{};
@@ -325,6 +327,7 @@ private:
     bool has_run_pca_ = false;
     bool has_run_model_ = false;
     bool add_neighbour_bands_ = false;
+    int k_folds_ = 1;
 };
 
 
