@@ -1168,11 +1168,12 @@ void MainWindow::RunTrain()
     result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
     std::ostringstream oss;
 
-    for (std::size_t i = 0; i < result_pca_.eigenvalues.size.height; ++i)
+    const auto max_i = result_pca_.eigenvalues.size.height;
+    for (std::size_t i = 0; i < k_bands; ++i)
     {
-        oss << result_pca_.eigenvalues.data[i] << ", ";
+        oss << result_pca_.eigenvalues.data[max_i - i - 1] << ", ";
     }
-    LOG_INFO("PCA Result: {} eigenvalues: {}", result_pca_.eigenvalues.size.height, oss.str());
+    LOG_INFO("PCA Result: {} highest eigenvalues: {}", k_bands, oss.str());
     has_run_pca_ = true;
     UpdatePcaImage();
 
@@ -1220,7 +1221,6 @@ void MainWindow::RunTrain()
         obj_classes.push_back(map_class.at(entity));
     }
 
-
     if (selected_model_ == "Drzewo decyzyjne")
     {
         RunDecisionTree(objects, obj_classes, class_count);
@@ -1236,8 +1236,6 @@ void MainWindow::RunTrain()
     {
         LOG_ERROR("Unknown model selected");
     }
-
-
 
     const auto end = std::chrono::high_resolution_clock::now();
     LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
@@ -1329,8 +1327,6 @@ void MainWindow::ImagePreprocessing()
     std::vector<CpuMatrix> cpu_img_objects;
     cpu_img_objects.reserve(entities_vec.size());
 
-    ImageSize img_size;
-
     for (const auto entity : entities_vec)
     {
         const auto cpu_img = GetImageData(entity);
@@ -1343,7 +1339,6 @@ void MainWindow::ImagePreprocessing()
         auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
         cpu_img_objects.push_back(cpu_object);
     }
-    img_size_ = img_size_;
 }
 
 void MainWindow::RunDecisionTree(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count)
