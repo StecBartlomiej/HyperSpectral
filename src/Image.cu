@@ -415,67 +415,53 @@ std::size_t SumAll(Matrix img)
 {
     return static_cast<std::size_t>(std::accumulate(img.data, img.data + img.pixels_width + img.pixels_width * (img.bands_height - 1), 0.f));
 }
-
 __global__ void ConcatNeighboursBand(Matrix old_img, ImageSize old_size, Matrix new_img, ImageSize new_size)
 {
-    static constexpr std::size_t up_left_offset =   1;
-    static constexpr std::size_t up_center_offset = 2;
-    static constexpr std::size_t up_right_offset =  3;
-
-    static constexpr std::size_t mid_left_offset =  4;
-    static constexpr std::size_t mid_right_offset = 5;
-
+    static constexpr std::size_t up_left_offset =     1;
+    static constexpr std::size_t up_center_offset =   2;
+    static constexpr std::size_t up_right_offset =    3;
+    static constexpr std::size_t mid_left_offset =    4;
+    static constexpr std::size_t mid_right_offset =   5;
     static constexpr std::size_t down_left_offset =   6;
     static constexpr std::size_t down_center_offset = 7;
     static constexpr std::size_t down_right_offset =  8;
 
-    // i - pixel positing on new img
-    const auto x = blockIdx.x * blockDim.x + threadIdx.x;
+    static constexpr int max_x_threads = 1024;
+    static constexpr int block_height = 3;
+    static constexpr int max_block_width = max_x_threads;
+
+    const auto block_start = blockIdx.x * (blockDim.x - 2);
+    const auto x = block_start + threadIdx.x;
     const auto y = blockIdx.y * blockDim.y + threadIdx.y;
     const auto band = blockIdx.z * blockDim.z + threadIdx.z;
 
-    if (x >= new_size.width || y >= new_size.height || band >= old_img.bands_height)
+    if (x >= old_size.width || y >= new_size.height || band >= old_img.bands_height)
         return;
 
-    const auto i = y * new_size.width + x;
-    const auto old_i = i + old_size.width + (y * 2) + 1;
+    const auto old_i = (y + 1) * old_size.width + x;
     const auto old_up_i = old_i - old_size.width;
     const auto old_down_i = old_i + old_size.width;
 
-    static constexpr int max_x_threads = 1024;
-    static constexpr int block_height = 3;
-    static constexpr int max_block_width = max_x_threads  + 2;
-
-    const auto block_range = blockIdx.x * blockDim.x;
-    const int block_width = (block_range + max_x_threads < new_size.width) ? max_block_width : (new_size.width - block_range) + 2;
+    const int block_width = (block_start + max_x_threads < old_size.width) ? max_block_width : (old_size.width - block_start);
 
     __shared__ float temp[max_block_width * block_height];
 
-    // Fill upper row, without corners
-    temp[threadIdx.x + 1] = GetElement(old_img, band, old_up_i);
+    // Fill upper row
+    temp[threadIdx.x] = GetElement(old_img, band, old_up_i);
 
-    // Fill center, without corners
-    temp[block_width + 1 + threadIdx.x] = GetElement(old_img, band, old_i);
+    // Fill center
+    temp[block_width + threadIdx.x] = GetElement(old_img, band, old_i);
 
-    // Fill lower row, without corners
-    temp[block_width * 2 + 1 + threadIdx.x] = GetElement(old_img, band, old_down_i);
+    // Fill lower row
+    temp[block_width * 2 + threadIdx.x] = GetElement(old_img, band, old_down_i);
 
-    // Fill corners
-    if (threadIdx.x == 0)
-    {
-        temp[0] = GetElement(old_img, band, old_up_i - 1);
-        temp[block_width] = GetElement(old_img, band, old_i - 1);
-        temp[block_width * 2] = GetElement(old_img, band, old_down_i - 1);
-    }
-    if (threadIdx.x == block_width - 3) // Get last thread
-    {
-        temp[block_width - 1] = GetElement(old_img, band, old_up_i + 1);
-        temp[block_width * 2 - 1] = GetElement(old_img, band, old_i + 1);
-        temp[block_width * 3 - 1] = GetElement(old_img, band, old_down_i + 1);
-    }
     __syncthreads();
 
-    const auto temp_i = threadIdx.x + 1;
+    if (threadIdx.x == 0 || threadIdx.x == block_width - 1)
+        return;
+
+    // for the second line in the same with
+    const auto temp_i = threadIdx.x; // value in range [1, block_width-2]
 
     const auto up_left =   temp[temp_i - 1];
     const auto up_center = temp[temp_i];
@@ -491,6 +477,7 @@ __global__ void ConcatNeighboursBand(Matrix old_img, ImageSize old_size, Matrix 
 
     const int band_offset = old_img.bands_height;
 
+    const auto i = y * new_size.width + x - 1;
     SetElement(new_img, band, i, mid_center);
 
     // Neighbours bands
@@ -524,7 +511,7 @@ CpuMatrix AddNeighboursBand(Matrix img, ImageSize size)
 
     dim3 threads{1024, 1, 1};
     dim3 blocks{
-        static_cast<unsigned int>(new_size.width / 1024 + 1),
+        static_cast<unsigned int>(size.width / 1024 + 1),
         static_cast<unsigned int>(new_size.height),
         static_cast<unsigned int>(old_img.bands_height)
     };
