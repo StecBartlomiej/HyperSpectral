@@ -27,11 +27,6 @@ struct ImageSize
     }
 };
 
-struct TreeAttributes
-{
-    std::vector<float> attributes;
-    std::uint32_t class_id;
-};
 
 [[nodiscard]] bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept;
 

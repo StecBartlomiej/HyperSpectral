@@ -341,24 +341,6 @@ TEST_CASE("PCA", "[CUDA]")
     }
 }
 
-// TEST_CASE("AddNeighboursBand", "[CUDA]")
-// {
-//
-//     int data[9 * 2] = {1, 2, 3,}
-//
-//     std::vector<std::shared_ptr<float[]>> data = {std::move(d1), std::move(d2)};
-//     auto LoadData = [=, i=0]() mutable ->std::shared_ptr<float[]>{ return data[i++]; };
-//
-//     ResultPCA result = PCA(LoadData, 3, 4, 2);
-//
-//     constexpr std::array<float, 4> eigenvalues = {0.0021, 0.0237, 0.0769, 0.1120};
-//
-//     for (int i = 0; i < 4; ++i)
-//     {
-//         REQUIRE_THAT(eigenvalues[i], Catch::Matchers::WithinRel(result.eigenvalues.data[i], 0.01f));
-//     }
-// }
-
 TEST_CASE("GetObjectFromMask", "[CUDA]")
 {
     float data[3 * 2] = {1, 2, 3,
@@ -662,25 +644,4 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
     {
         REQUIRE(cpu_mat.data[i] == expected_img[i]);
     }
-}
-
-TEST_CASE("K-Fold Validation", "[CUDA]")
-{
-    std::vector<uint32_t> object_class = {
-        0, 0, 0, // 3
-        1, 1, 1, 1, 1, 1, 1, // 7
-        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // 11
-        3, 3, 3, 3, 3, // 5
-    };
-
-    auto result = KFoldGeneration(object_class, 4, 3);
-
-    // for (auto group : result)
-    // {
-    //     for (auto x : group)
-    //     {
-    //         printf("%llu:%u  ", x, object_class[x]);
-    //     }
-    //     printf("\n");
-    // }
 }

@@ -17,15 +17,11 @@ int main()
     GLFWwindow* window = CreateWindow();
 
     RegisterComponents();
-    auto *image_window_sys = RegisterGuiImageWindow();
-    auto *pca_window_sys = RegisterPCAWindow();
-    auto *threshold_window_sys = RegisterGuiThreshold();
-    auto *has_name_sys = RegisterHasNameSystem();
 
     bool show_demo_window = true;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-    MainWindow main_window{has_name_sys};
+    MainWindow main_window{};
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -44,10 +40,8 @@ int main()
 
         ImGui::DockSpaceOverViewport(ImGui::GetMainViewport()->ID, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
-        // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
-
 
         try
         {
@@ -57,7 +51,6 @@ int main()
         {
             LOG_ERROR("Some exception have benn caught");
         }
-
 
         // Rendering
         ImGui::Render();

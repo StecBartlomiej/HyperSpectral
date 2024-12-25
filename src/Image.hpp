@@ -26,11 +26,6 @@ struct CpuMatrix;
 
 [[nodiscard]] CpuMatrix GetImageData(Entity entity);
 
-
-void RunPCA(Entity image);
-
-[[nodiscard]] cudaPitchedPtr LoadImageCuda(const EnviHeader &envi, float* data);
-
 template<typename T>
 [[nodiscard]] std::shared_ptr<float[]> LoadImageType(std::istream &iss, const EnviHeader &envi)
 {
@@ -245,7 +240,6 @@ struct StatisticalParameters
     float variance;
     float skewness;
     float kurtosis;
-
 
     template<class Archive>
     void serialize(Archive & archive)

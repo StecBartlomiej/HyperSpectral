@@ -45,58 +45,7 @@ protected:
 };
 
 
-class GuiImageWindow final: public System, public GuiImage
-{
-public:
-    void Show();
-
-private:
-    std::string name_{};
-};
-
-[[nodiscard]] GuiImageWindow* RegisterGuiImageWindow();
-
 void LoadOpenGLTexture(float *data, ImageSize size, GLuint texture, std::size_t selected_band);
-
-
-
-class GuiThreshold final: public System, public GuiImage
-{
-public:
-    void Show();
-
-private:
-    float threshold = 0.f;
-    GLuint threshold_texture_ = CreateTexture();
-    std::string name_{};
-    bool show_threshold_ = false;
-};
-
-[[nodiscard]] GuiThreshold* RegisterGuiThreshold();
-
-// Requires only filesystem paths
-class PCAWindow final: public System, public GuiImage
-{
-public:
-    void Show();
-
-private:
-    std::set<Entity> pca_entity_{};
-    std::set<Entity> to_calculate_{};
-    std::string name_{};
-    ImageSize selected_size_{0, 0, 1};
-};
-
-[[nodiscard]] PCAWindow* RegisterPCAWindow();
-
-
-[[nodiscard]] PCAWindow* RegisterPCAWindow();
-
-struct HasNameSystem: public System
-{
-};
-
-[[nodiscard]] HasNameSystem* RegisterHasNameSystem();
 
 
 class Image
@@ -147,7 +96,6 @@ private:
 class TransformedImageWindow
 {
 public:
-
     void Show();
 
     void Load(const CpuMatrix &cpu_matrix);
@@ -167,7 +115,7 @@ public:
 
     void LoadImages();
 
-    const std::vector<Entity>& GetLoadedEntities() const { return selected_entity_; };
+    [[nodiscard]] const std::vector<Entity>& GetLoadedEntities() const { return selected_entity_; };
 
 private:
     std::filesystem::path loading_image_path_{R"(E:\Praca inzynierska\HSI images\)"};
@@ -287,8 +235,6 @@ private:
 class MainWindow
 {
 public:
-    explicit MainWindow(HasNameSystem* has_name_system): has_name_system_{has_name_system} {}
-
     void Show();
 
     void SaveStatisticValues();
@@ -308,8 +254,6 @@ private:
 
 private:
     ImageViewWindow threshold_window_{};
-    std::string selected_img_name_{};
-    HasNameSystem *has_name_system_;
     TransformedImageWindow pca_transformed_window_{};
     ThresholdPopupWindow threshold_popup_window_{};
     DataInputImageWindow data_input_window_{};
@@ -324,6 +268,7 @@ private:
     ResultPCA result_pca_{};
     ImageSize img_size_{};
     std::string_view selected_model_;
+    std::string selected_img_name_{};
     bool has_run_pca_ = false;
     bool has_run_model_ = false;
     bool add_neighbour_bands_ = false;

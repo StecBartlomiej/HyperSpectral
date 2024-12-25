@@ -387,8 +387,6 @@ std::vector<std::vector<std::size_t>> KFoldGeneration(const std::vector<uint32_t
     }
 
     std::size_t objects_count = object_class.size();
-    std::size_t fold_size = objects_count / k_groups;
-
 
     std::random_device rd;
     std::mt19937 g(rd());
