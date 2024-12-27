@@ -231,6 +231,17 @@ private:
     int unique_link_id_ = 0;
 };
 
+class SvmViewWindow
+{
+public:
+    void Show();
+
+    void Set(std::vector<float> alpha, float b);
+
+private:
+    std::vector<float> alpha_{};
+    float b_{};
+};
 
 class MainWindow
 {
@@ -252,6 +263,8 @@ private:
 
     void RunDecisionTree(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count);
 
+    void RunSVM(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count);
+
 private:
     ImageViewWindow threshold_window_{};
     TransformedImageWindow pca_transformed_window_{};
@@ -261,6 +274,7 @@ private:
     StatisticWindow statistic_window_{};
     DataClassificationWindow data_classification_window_{};
     TreeViewWindow tree_view_window_{};
+    SvmViewWindow svm_view_window_{};
     Tree tree_{};
     SVM svm_{};
     std::vector<CpuMatrix> pca_transformed_images_{};

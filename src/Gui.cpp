@@ -589,6 +589,7 @@ void DataClassificationWindow::Show()
 
             ImGui::PushID(row);
 
+            ImGui::SetNextItemWidth(16*4);
             ImGui::SliderInt("##slider_int", &classes_[entity], 0, class_count_, "%d", ImGuiSliderFlags_AlwaysClamp);
 
             ImGui::PopID();
@@ -612,8 +613,6 @@ void DataClassificationWindow::Load(std::vector<Entity> entities)
 
 void TreeViewWindow::Show(const Node *root)
 {
-    ImGui::SeparatorText("Wizualizacja drzewa decyzyjnego");
-
     ImNodes::BeginNodeEditor();
 
     const int curr_node_id = unique_node_id_++;
@@ -719,6 +718,49 @@ void TreeViewWindow::ShowNode(const Node *root, const int input_id, const ImVec2
     }
 }
 
+
+void SvmViewWindow::Show()
+{
+    constexpr static ImGuiTableFlags flags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+                                   ImGuiTableFlags_BordersOuter | ImGuiTableFlags_BordersV | ImGuiTableFlags_Resizable |
+                                   ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable;
+    static int freeze_cols = 1;
+    static int freeze_rows = 1;
+
+    ImVec2 outer_size = ImVec2(0.0f, 16 * 8);
+    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8""), 2, flags, outer_size))
+    {
+        ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
+
+        ImGui::TableSetupColumn("Wymiar", ImGuiTableColumnFlags_NoHide);
+        ImGui::TableSetupColumn("a");
+
+        ImGui::TableHeadersRow();
+        int row = 0;
+        for (const auto a: alpha_)
+        {
+            ImGui::TableNextRow();
+
+            if (!ImGui::TableSetColumnIndex(0))
+                continue;
+            ImGui::Text("%d", row);
+
+            if (!ImGui::TableSetColumnIndex(1))
+                continue;
+
+            ImGui::Text(std::to_string(a).c_str());
+            row++;
+        }
+        ImGui::EndTable();
+    }
+    ImGui::Text("b = %f", b_);
+}
+
+void SvmViewWindow::Set(std::vector<float> alpha, float b)
+{
+    alpha_ = std::move(alpha);
+    b_ = b;
+}
 
 void MainWindow::Show()
 {
@@ -840,8 +882,24 @@ void MainWindow::Show()
 
         statistic_window_.Show();
 
-        ImGui::BeginChild("Drzewo decyzyjne", ImVec2(ImGui::GetContentRegionAvail().x, 600));
-        tree_view_window_.Show(tree_.GetRoot());
+        ImGui::SeparatorText("Wizualizacja model");
+
+        ImGui::BeginChild("Modele uczenia", ImVec2(ImGui::GetContentRegionAvail().x, 600));
+        if (ImGui::BeginTabBar("Modele uczenia##uczenie tab"))
+        {
+            if (ImGui::BeginTabItem("Drzewo decyzyjne"))
+            {
+                if (tree_.GetRoot() != nullptr)
+                    tree_view_window_.Show(tree_.GetRoot());
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("SVM"))
+            {
+                svm_view_window_.Show();
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
         ImGui::EndChild();
     }
 
@@ -1005,6 +1063,8 @@ void MainWindow::RunTrain()
 
         auto lambda = [](const AttributeList &a, const AttributeList &b) -> float { return KernelRbf(a, b, 0.001f); };
         svm_.Train(objects, obj_classes, lambda);
+
+        svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
     }
     else
     {
@@ -1122,7 +1182,7 @@ void MainWindow::RunDecisionTree(const ObjectList &objects, std::vector<uint32_t
 
     if (k_folds_ == 1)
     {
-        LOG_INFO("Running with random 70-30 split");
+        LOG_INFO("Running with random data training-test 70-30 split");
         const auto [training_data, training_classes, test_data, test_classes] = SplitData(objects, obj_classes, class_count, 0.7);
         tree_.Train(training_data, training_classes, class_count);
 
@@ -1165,6 +1225,61 @@ void MainWindow::RunDecisionTree(const ObjectList &objects, std::vector<uint32_t
 
     }
     LOG_INFO("Classification error for best tree: {} ", max_error);
+}
+
+void MainWindow::RunSVM(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count)
+{
+    LOG_INFO("Running SVM");
+    std::size_t max_error = objects.size();
+
+    static constexpr float gamma = 0.001;
+    auto kernel_func = [](const AttributeList &a1, const AttributeList &a2) -> float { return KernelRbf(a1, a2, gamma); };
+
+    if (k_folds_ == 1)
+    {
+        LOG_INFO("Running with random data training-test 70-30 split");
+        const auto [training_data, training_classes, test_data, test_classes] = SplitData(objects, obj_classes, class_count, 0.7);
+        svm_.Train(training_data, training_classes, kernel_func);
+
+        const auto class_result = svm_.Classify(test_data);
+        const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
+                        [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+        max_error = error;
+    }
+    else
+    {
+        LOG_INFO("Running with {}-fold cross validation", k_folds_);
+        const auto folds_idx = KFoldGeneration(obj_classes, class_count, k_folds_);
+
+        SVM svm;
+
+        ObjectList best_training_data{};
+        std::vector<uint32_t> best_training_classes;
+
+        for (std::size_t k = 0; k < folds_idx.size(); ++k)
+        {
+            const auto [training_data, training_classes, test_data, test_classes] =
+                GetFold(folds_idx, objects, obj_classes, k);
+
+            svm.Train(training_data, training_classes, kernel_func);
+
+            const auto class_result = svm.Classify(test_data);
+
+            assert(class_result.size() == test_classes.size());
+            const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
+                            [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+
+            if (error < max_error)
+            {
+                max_error = error;
+                best_training_data = training_data;
+                best_training_classes = training_classes;
+            }
+        }
+        svm_.Train(best_training_data, best_training_classes, kernel_func);
+
+    }
+    LOG_INFO("Classification error for best svm: {} ", max_error);
 }
 
 const char* GetAttributeName(std::size_t idx)

@@ -83,6 +83,9 @@ public:
 
     std::vector<uint32_t> Classify(const ObjectList &x);
 
+    [[nodiscard]] const std::vector<float>& GetAlpha() const { return alpha_; }
+    [[nodiscard]] float GetB() const { return b_; }
+
 private:
     float b_{};
     std::vector<float> alpha_{};
