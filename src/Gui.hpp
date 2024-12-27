@@ -204,7 +204,7 @@ public:
 
     [[nodiscard]] std::map<Entity, int> GetClasses() const { return classes_; };
 
-    [[nodiscard]] int GetClassCount() const { return classes_.size(); };
+    [[nodiscard]] int GetClassCount() const { return class_count_ + 1; };
 
 private:
     std::vector<Entity> entities_{};
@@ -250,8 +250,16 @@ public:
 
     void SaveStatisticValues();
 
+    void RunModels();
+
+    [[nodsicard]] std::vector<uint32_t> RunClassify(const std::vector<Entity> &entities_vec);
+
+    [[nodiscard]] std::vector<uint32_t> GetObjectClasses(const std::vector<Entity> &entities);
+
 private:
-    void RunTrain();
+    void RunTrain(const std::vector<Entity> &entities_vec);
+
+    [[nodiscard]] std::vector<CpuMatrix> RunThresholding(const std::vector<Entity> &entities_vec);
 
     void ShowPopupsWindow();
 
@@ -260,10 +268,6 @@ private:
     void UpdatePcaImage();
 
     void ImagePreprocessing();
-
-    void RunDecisionTree(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count);
-
-    void RunSVM(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count);
 
 private:
     ImageViewWindow threshold_window_{};

@@ -859,7 +859,7 @@ void MainWindow::Show()
 
     if (ImGui::Button("Uruchom uczenie"))
     {
-        RunTrain();
+        RunModels();
     }
 
     ImGui::Spacing();
@@ -914,37 +914,93 @@ void MainWindow::SaveStatisticValues()
     statistic_window_.serialize(archive);
 }
 
-void MainWindow::RunTrain()
+void MainWindow::RunModels()
+{
+    const std::vector<Entity> &entities_vec = data_input_window_.GetLoadedEntities();
+    const std::vector<uint32_t> obj_classes = GetObjectClasses(entities_vec);
+    const std::size_t class_count = data_classification_window_.GetClassCount();
+
+    // Split data
+    if (k_folds_ == 1)
+    {
+        LOG_INFO("Running with random data training-test 70-30 split");
+        const auto [training_entity, training_classes, test_entity, test_classes] = SplitData(entities_vec, obj_classes, class_count, 0.7);
+
+        RunTrain(training_entity);
+        const auto class_result = RunClassify(test_entity);
+
+        assert(class_result.size() == test_classes.size());
+        const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
+                        [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+
+        LOG_INFO("Classification score for test values: {}", error);
+    }
+    else if (k_folds_ >= 2)
+    {
+        LOG_INFO("Running with {}-fold cross validation", k_folds_);
+        const auto folds_idx = KFoldGeneration(obj_classes, class_count, k_folds_);
+
+
+        std::size_t best_error = entities_vec.size();
+        std::size_t best_test_fold_idx = 0;
+        for (std::size_t test_fold_idx = 0; test_fold_idx < folds_idx.size(); ++test_fold_idx)
+        {
+            const auto [training_entity, training_classes, test_entity, test_classes] =
+                GetFold(folds_idx, entities_vec, obj_classes, test_fold_idx);
+
+            RunTrain(training_entity);
+            const auto class_result = RunClassify(test_entity);
+
+            assert(class_result.size() == test_classes.size());
+            const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
+                            [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+
+            if (error < best_error)
+            {
+                best_error = error;
+                best_test_fold_idx = test_fold_idx;
+            }
+            LOG_INFO("Classification score for idx {} test fold: {}", test_fold_idx, error);
+        }
+        const auto [training_entity, training_classes, test_entity, test_classes] =
+            GetFold(folds_idx, entities_vec, obj_classes, best_test_fold_idx);
+
+        RunTrain(training_entity);
+
+        LOG_INFO("Best classification score for test values: {}", best_error);
+    }
+}
+
+std::vector<uint32_t> MainWindow::GetObjectClasses(const std::vector<Entity> &entities)
+{
+    std::vector<uint32_t> obj_classes;
+    const auto map_class = data_classification_window_.GetClasses();
+
+     for (auto entity : entities)
+    {
+        obj_classes.push_back(map_class.at(entity));
+    }
+    return obj_classes;
+}
+
+void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
 {
     if (selected_model_.empty())
     {
         LOG_WARN("Select model before running classfication!");
         return;
     }
-
     if (selected_img_name_.empty())
     {
         LOG_WARN("RunTrain: image is empty");
         return;
     }
-
-    const auto start = std::chrono::high_resolution_clock::now();
-
-    const auto &entities_vec = data_input_window_.GetLoadedEntities();
-    const auto opt_threshold_settings = threshold_popup_window_.GetThresholdSettings();
-
     if (entities_vec.empty())
     {
         LOG_WARN("RunTrain: empty entities vector");
         return;
     }
-
-    if (!opt_threshold_settings.has_value())
-    {
-        LOG_WARN("RunTrain: Threshold settings not set");
-        return;
-    }
-    const auto threshold_setting = opt_threshold_settings.value();
+    const auto start = std::chrono::high_resolution_clock::now();
 
     const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
     if (!opt_pca_settings.has_value())
@@ -954,42 +1010,8 @@ void MainWindow::RunTrain()
     }
     const std::size_t k_bands = opt_pca_settings.value().selected_bands;
 
-
     /// IMAGE PREPROCESSING
-    std::vector<CpuMatrix> cpu_img_objects;
-    cpu_img_objects.reserve(entities_vec.size());
-
-    if (add_neighbour_bands_)
-    {
-        LOG_INFO("Running add_neighbour_bands_");
-        for (const auto entity : entities_vec)
-        {
-            auto orginal_img = GetImageData(entity);
-            auto cpu_img = AddNeighboursBand(orginal_img.GetMatrix(), orginal_img.size);
-            img_size_ = cpu_img.size;
-
-            const auto mask = RunImageThreshold(cpu_img, threshold_setting);
-
-            /// Object on mask
-            auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
-            cpu_img_objects.push_back(cpu_object);
-        }
-    }
-    else
-    {
-        for (const auto entity : entities_vec)
-        {
-            auto cpu_img = GetImageData(entity);
-            img_size_ = cpu_img.size;
-
-            const auto mask = RunImageThreshold(cpu_img, threshold_setting);
-
-            /// Object on mask
-            auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
-            cpu_img_objects.push_back(cpu_object);
-        }
-    }
-
+    std::vector<CpuMatrix> cpu_img_objects = RunThresholding(entities_vec);
     ImageSize max_obj_size = img_size_;
 
     /// PCA
@@ -1009,7 +1031,7 @@ void MainWindow::RunTrain()
     has_run_pca_ = true;
     UpdatePcaImage();
 
-
+    /// Get statistical values
     const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
         max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
 
@@ -1026,7 +1048,8 @@ void MainWindow::RunTrain()
     }
 
     /// CLASSFIAITON, choose SVM or TREE
-
+    const auto obj_classes = GetObjectClasses(entities_vec);
+    const auto class_count = obj_classes.size();
     ObjectList objects;
     objects.reserve(statistical_params_.size());
 
@@ -1044,18 +1067,11 @@ void MainWindow::RunTrain()
         }
         objects.push_back(statistic_vector);
     }
-    std::vector<uint32_t> obj_classes;
-    const auto map_class = data_classification_window_.GetClasses();
-    const std::size_t class_count = data_classification_window_.GetClassCount();
-
-     for (auto entity : entities_vec)
-    {
-        obj_classes.push_back(map_class.at(entity));
-    }
 
     if (selected_model_ == "Drzewo decyzyjne")
     {
-        RunDecisionTree(objects, obj_classes, class_count);
+        LOG_INFO("Running decision tree");
+        tree_.Train(objects, obj_classes, class_count);
     }
     else if (selected_model_ == "SVM")
     {
@@ -1068,7 +1084,8 @@ void MainWindow::RunTrain()
     }
     else
     {
-        LOG_ERROR("Unknown model selected");
+        LOG_ERROR("Unspecified model!");
+        throw std::runtime_error("");
     }
 
     const auto end = std::chrono::high_resolution_clock::now();
@@ -1175,113 +1192,6 @@ void MainWindow::ImagePreprocessing()
     }
 }
 
-void MainWindow::RunDecisionTree(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count)
-{
-    LOG_INFO("Running decision tree");
-    std::size_t max_error = objects.size();
-
-    if (k_folds_ == 1)
-    {
-        LOG_INFO("Running with random data training-test 70-30 split");
-        const auto [training_data, training_classes, test_data, test_classes] = SplitData(objects, obj_classes, class_count, 0.7);
-        tree_.Train(training_data, training_classes, class_count);
-
-        const auto class_result = tree_.Classify(test_data);
-        const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
-                        [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
-        max_error = error;
-    }
-    else
-    {
-        LOG_INFO("Running with {}-fold cross validation", k_folds_);
-        const auto folds_idx = KFoldGeneration(obj_classes, class_count, k_folds_);
-
-        Tree tree;
-
-        ObjectList best_training_data{};
-        std::vector<uint32_t> best_training_classes;
-
-        for (std::size_t k = 0; k < folds_idx.size(); ++k)
-        {
-            const auto [training_data, training_classes, test_data, test_classes] =
-                GetFold(folds_idx, objects, obj_classes, k);
-
-            tree.Train(training_data, training_classes, class_count);
-
-            const auto class_result = tree.Classify(test_data);
-
-            assert(class_result.size() == test_classes.size());
-            const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
-                            [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
-
-            if (error < max_error)
-            {
-                max_error = error;
-                best_training_data = training_data;
-                best_training_classes = training_classes;
-            }
-        }
-        tree_.Train(best_training_data, best_training_classes, class_count);
-
-    }
-    LOG_INFO("Classification error for best tree: {} ", max_error);
-}
-
-void MainWindow::RunSVM(const ObjectList &objects, std::vector<uint32_t> &obj_classes, uint32_t class_count)
-{
-    LOG_INFO("Running SVM");
-    std::size_t max_error = objects.size();
-
-    static constexpr float gamma = 0.001;
-    auto kernel_func = [](const AttributeList &a1, const AttributeList &a2) -> float { return KernelRbf(a1, a2, gamma); };
-
-    if (k_folds_ == 1)
-    {
-        LOG_INFO("Running with random data training-test 70-30 split");
-        const auto [training_data, training_classes, test_data, test_classes] = SplitData(objects, obj_classes, class_count, 0.7);
-        svm_.Train(training_data, training_classes, kernel_func);
-
-        const auto class_result = svm_.Classify(test_data);
-        const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
-                        [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
-        max_error = error;
-    }
-    else
-    {
-        LOG_INFO("Running with {}-fold cross validation", k_folds_);
-        const auto folds_idx = KFoldGeneration(obj_classes, class_count, k_folds_);
-
-        SVM svm;
-
-        ObjectList best_training_data{};
-        std::vector<uint32_t> best_training_classes;
-
-        for (std::size_t k = 0; k < folds_idx.size(); ++k)
-        {
-            const auto [training_data, training_classes, test_data, test_classes] =
-                GetFold(folds_idx, objects, obj_classes, k);
-
-            svm.Train(training_data, training_classes, kernel_func);
-
-            const auto class_result = svm.Classify(test_data);
-
-            assert(class_result.size() == test_classes.size());
-            const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
-                            [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
-
-            if (error < max_error)
-            {
-                max_error = error;
-                best_training_data = training_data;
-                best_training_classes = training_classes;
-            }
-        }
-        svm_.Train(best_training_data, best_training_classes, kernel_func);
-
-    }
-    LOG_INFO("Classification error for best svm: {} ", max_error);
-}
-
 const char* GetAttributeName(std::size_t idx)
 {
     const static std::array<const char*, 4> attr_names_ = {
@@ -1293,4 +1203,114 @@ const char* GetAttributeName(std::size_t idx)
 
     assert(idx < attr_names_.size());
     return attr_names_[idx];
+}
+
+std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entities_vec)
+{
+    assert(!entities_vec.empty());
+    assert(has_run_model_);
+
+    const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
+    assert(opt_pca_settings.has_value());
+    const std::size_t k_bands = opt_pca_settings.value().selected_bands;
+
+    // DATA PREPROCESSING
+    std::vector<CpuMatrix> cpu_img_objects = RunThresholding(entities_vec);
+    const ImageSize max_obj_size = img_size_;
+
+    // Transforming to PCA dimensions
+    auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
+    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
+        max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+
+    // Getting statistical values
+    std::vector<std::vector<StatisticalParameters>> statistical_params{};
+    for (std::size_t i = 0; i < entities_vec.size(); ++i)
+    {
+        const auto &pca_object = pca_transformed_objects[i];
+        const auto entity = entities_vec[i];
+
+        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
+
+        statistic_window_.Load(entity, statistic_vector);
+        statistical_params.push_back(statistic_vector);
+    }
+
+    /// Classification
+    ObjectList objects;
+    objects.reserve(statistical_params.size());
+
+    for (const auto &statistic : statistical_params)
+    {
+        std::vector<float> statistic_vector;
+        statistic_vector.reserve(statistical_params.size() * 4);
+
+        for (const auto &stat_value : statistic)
+        {
+            statistic_vector.push_back(stat_value.mean);
+            statistic_vector.push_back(stat_value.variance);
+            statistic_vector.push_back(stat_value.skewness);
+            statistic_vector.push_back(stat_value.kurtosis);
+        }
+        objects.push_back(statistic_vector);
+    }
+
+    if (selected_model_ == "Drzewo decyzyjne")
+    {
+        LOG_INFO("Classification using decision tree");
+        return tree_.Classify(objects);
+    }
+    else if (selected_model_ == "SVM")
+    {
+        LOG_INFO("Classification using SVM");
+        return svm_.Classify(objects);
+    }
+
+    LOG_ERROR("Unspecified model");
+    throw std::runtime_error("");
+}
+
+std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &entities_vec)
+{
+    const auto opt_threshold_settings = threshold_popup_window_.GetThresholdSettings();
+    if (!opt_threshold_settings.has_value())
+    {
+        LOG_WARN("RunTrain: Threshold settings not set, running with threshold=0, band=0");
+    }
+    const auto threshold_setting = opt_threshold_settings.value_or(ThresholdSetting{0.f, 0});
+
+    std::vector<CpuMatrix> cpu_img_objects;
+    cpu_img_objects.reserve(entities_vec.size());
+
+    if (add_neighbour_bands_)
+    {
+        LOG_INFO("Adding neighbour bands for texture analysis");
+        for (const auto entity : entities_vec)
+        {
+            auto original_img = GetImageData(entity);
+            auto cpu_img = AddNeighboursBand(original_img.GetMatrix(), original_img.size);
+            img_size_ = cpu_img.size;
+
+            const auto mask = RunImageThreshold(cpu_img, threshold_setting);
+
+            /// Object on mask
+            auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+            cpu_img_objects.push_back(cpu_object);
+        }
+    }
+    else
+    {
+        for (const auto entity : entities_vec)
+        {
+            auto cpu_img = GetImageData(entity);
+            img_size_ = cpu_img.size;
+
+            const auto mask = RunImageThreshold(cpu_img, threshold_setting);
+
+            /// Object on mask
+            auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+            cpu_img_objects.push_back(cpu_object);
+        }
+    }
+    return std::move(cpu_img_objects);
 }

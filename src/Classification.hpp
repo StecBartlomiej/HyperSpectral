@@ -1,6 +1,7 @@
 #ifndef CLASSIFICATION_HPP
 #define CLASSIFICATION_HPP
 
+#include <EntityComponentSystem.hpp>
 #include <vector>
 #include <span>
 #include <string>
@@ -30,14 +31,6 @@ struct TreeTest
     float information_gain;
     float threshold;
     std::size_t attribute_idx;
-};
-
-struct TrainingTestData
-{
-    ObjectList training_data;
-    std::vector<uint32_t> training_classes;
-    ObjectList test_data;
-    std::vector<uint32_t> test_classes;
 };
 
 
@@ -94,12 +87,19 @@ private:
     std::vector<uint32_t> y_{};
 };
 
+struct TrainingTestData
+{
+    std::vector<Entity> training_data;
+    std::vector<uint32_t> training_classes;
+    std::vector<Entity> test_data;
+    std::vector<uint32_t> test_classes;
+};
 
 
 [[nodiscard]] auto KFoldGeneration(const std::vector<uint32_t> &object_class, uint32_t class_count, uint32_t k_groups=10) -> std::vector<std::vector<std::size_t>>;
 
-[[nodsicard]] TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t test_fold_idx);
+[[nodsicard]] TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_class, std::size_t test_fold_idx);
 
-[[nodsicard]] TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count, float split_ratio);
+[[nodsicard]] TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count, float split_ratio);
 
 #endif //CLASSIFICATION_HPP

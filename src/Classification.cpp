@@ -10,8 +10,6 @@
 #include <numeric>
 #include <random>
 
-#include "spdlog/pattern_formatter.h"
-
 
 bool IsLeaf(const Node *node) noexcept
 {
@@ -349,7 +347,7 @@ std::vector<uint32_t> SVM::Classify(const ObjectList &x)
 {
     assert(!x.empty());
     assert(!x_.empty() && !y_.empty());
-    assert(x.size() == y_.size());
+    assert(x_.size() == y_.size());
 
     std::vector<uint32_t> class_result;
     class_result.reserve(x.size());
@@ -440,14 +438,15 @@ std::vector<std::vector<std::size_t>> KFoldGeneration(const std::vector<uint32_t
     return object_fold_idx;
 }
 
-TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t test_fold_idx)
+TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const std::vector<Entity> &object_list,
+    const std::vector<uint32_t> &object_class, std::size_t test_fold_idx)
 {
     const auto test_fold = folds[test_fold_idx];
 
-    ObjectList training_data{};
+    std::vector<Entity> training_data{};
     std::vector<uint32_t> training_classes;
 
-    ObjectList test_data{};
+    std::vector<Entity> test_data{};
     std::vector<uint32_t> test_classes;
 
     training_data.reserve(test_fold.size() * 10);
@@ -484,7 +483,7 @@ TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, con
     };
 }
 
-TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count,
+TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count,
     float split_ratio)
 {
     std::random_device rd;
@@ -508,27 +507,17 @@ TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint
         std::ranges::shuffle(indexes[i], g);
     }
 
-
     TrainingTestData data{};
 
-    static constexpr std::size_t train_start_idx = 0;
-    const std::size_t train_end_idx = std::round(object_classes.size() * split_ratio);
-
-    const auto test_start_idx = train_end_idx;
-    const auto test_end_idx = object_classes.size();
-
     std::vector<std::size_t> train_idx{};
-    for (auto i = train_start_idx; i < train_end_idx; ++i)
+    for (const auto &curr_index : indexes)
     {
-        for (auto curr_index : indexes)
-        {
-            const std::size_t end_idx =  std::round(curr_index.size() * split_ratio);
+        const std::size_t end_idx =  std::round(curr_index.size() * split_ratio);
 
-            for (auto k = 0; k < end_idx; ++k)
-            {
-                const auto idx = curr_index[k];
-                train_idx.push_back(idx);
-            }
+        for (auto k = 0; k < end_idx; ++k)
+        {
+            const auto idx = curr_index[k];
+            train_idx.push_back(idx);
         }
     }
     std::ranges::shuffle(train_idx, g);
@@ -539,18 +528,14 @@ TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint
     }
 
     std::vector<std::size_t> test_idx{};
-    for (auto i = test_start_idx; i < test_end_idx; ++i)
+    for (const auto& curr_index : indexes)
     {
-        for (auto j = 0; j < indexes.size(); ++j)
-        {
-            const auto &curr_index = indexes[j];
-            const auto end_idx =  std::round(curr_index.size() * split_ratio);
+        const auto end_idx =  std::round(curr_index.size() * split_ratio);
 
-            for (auto k = end_idx; k < curr_index.size(); ++k)
-            {
-                const auto idx = curr_index[k];
-                test_idx.push_back(idx);
-            }
+        for (std::size_t k = end_idx; k < curr_index.size(); ++k)
+        {
+            const auto idx = curr_index[k];
+            test_idx.push_back(idx);
         }
     }
     std::ranges::shuffle(test_idx, g);
