@@ -415,6 +415,7 @@ std::vector<std::vector<std::size_t>> KFoldGeneration(const std::vector<uint32_t
                 object_fold_idx[group_idx].push_back(curr_idx);
             }
         }
+        std::ranges::shuffle(object_fold_idx[group_idx], g);
     }
 
     // Last group can take more or less than any group
@@ -433,6 +434,8 @@ std::vector<std::vector<std::size_t>> KFoldGeneration(const std::vector<uint32_t
             object_fold_idx[last_group_idx].push_back(curr_idx);
         }
     }
+    std::ranges::shuffle(object_fold_idx[last_group_idx], g);
+
 
     return object_fold_idx;
 }
@@ -502,7 +505,7 @@ TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint
 
     for (std::size_t i = 0; i < class_count; ++i)
     {
-        std::shuffle(indexes[i].begin(), indexes[i].end(), g);
+        std::ranges::shuffle(indexes[i], g);
     }
 
 
@@ -514,23 +517,28 @@ TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint
     const auto test_start_idx = train_end_idx;
     const auto test_end_idx = object_classes.size();
 
+    std::vector<std::size_t> train_idx{};
     for (auto i = train_start_idx; i < train_end_idx; ++i)
     {
-        for (auto j = 0; j < indexes.size(); ++j)
+        for (auto curr_index : indexes)
         {
-            const auto &curr_index = indexes[j];
-            const auto end_idx =  std::round(curr_index.size() * split_ratio);
+            const std::size_t end_idx =  std::round(curr_index.size() * split_ratio);
 
             for (auto k = 0; k < end_idx; ++k)
             {
                 const auto idx = curr_index[k];
-
-                data.training_data.push_back(object_list[idx]);
-                data.training_classes.push_back(object_classes[idx]);
+                train_idx.push_back(idx);
             }
         }
     }
+    std::ranges::shuffle(train_idx, g);
+    for (auto idx : train_idx)
+    {
+        data.training_data.push_back(object_list[idx]);
+        data.training_classes.push_back(object_classes[idx]);
+    }
 
+    std::vector<std::size_t> test_idx{};
     for (auto i = test_start_idx; i < test_end_idx; ++i)
     {
         for (auto j = 0; j < indexes.size(); ++j)
@@ -541,11 +549,15 @@ TrainingTestData SplitData(const ObjectList &object_list, const std::vector<uint
             for (auto k = end_idx; k < curr_index.size(); ++k)
             {
                 const auto idx = curr_index[k];
-
-                data.test_data.push_back(object_list[idx]);
-                data.test_classes.push_back(object_classes[idx]);
+                test_idx.push_back(idx);
             }
         }
+    }
+    std::ranges::shuffle(test_idx, g);
+    for (auto idx : test_idx)
+    {
+        data.test_data.push_back(object_list[idx]);
+        data.test_classes.push_back(object_classes[idx]);
     }
 
     return data;
