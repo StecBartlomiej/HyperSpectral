@@ -101,7 +101,7 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
                 [first_class=object_classes.front()](const uint32_t class_idx){ return first_class == class_idx; });
     if (has_all_of)
     {
-        LOG_INFO("All object have the same class, existing");
+        // LOG_INFO("All object have the same class, existing");
         root->attribute_idx = object_classes.front();
         return;
     }
@@ -176,8 +176,8 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
         }
     }
 
-    LOG_INFO("Best test for current node, attribute_idx:{}, threshold:{}, informatinon_gain:{}",
-        best_test.attribute_idx, best_test.threshold, best_test.information_gain);
+    // LOG_INFO("Best test for current node, attribute_idx:{}, threshold:{}, informatinon_gain:{}",
+        // best_test.attribute_idx, best_test.threshold, best_test.information_gain);
     root->attribute_idx = best_test.attribute_idx;
     root->threshold = best_test.threshold;
 

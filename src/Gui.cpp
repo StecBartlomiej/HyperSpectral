@@ -926,7 +926,10 @@ void MainWindow::RunModels()
         LOG_INFO("Running with random data training-test 70-30 split");
         const auto [training_entity, training_classes, test_entity, test_classes] = SplitData(entities_vec, obj_classes, class_count, 0.7);
 
+        LOG_INFO("Training data id: {}", fmt::join(training_entity, ", "));
         RunTrain(training_entity);
+
+        LOG_INFO("Classify data id: {}", fmt::join(test_entity, ", "));
         const auto class_result = RunClassify(test_entity);
 
         assert(class_result.size() == test_classes.size());
@@ -948,7 +951,10 @@ void MainWindow::RunModels()
             const auto [training_entity, training_classes, test_entity, test_classes] =
                 GetFold(folds_idx, entities_vec, obj_classes, test_fold_idx);
 
+            LOG_INFO("Training data id: {}", fmt::join(training_entity, ", "));
             RunTrain(training_entity);
+
+            LOG_INFO("Classify data id: {}", fmt::join(test_entity, ", "));
             const auto class_result = RunClassify(test_entity);
 
             assert(class_result.size() == test_classes.size());
@@ -1094,6 +1100,76 @@ void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
     has_run_model_ = true;
 }
 
+std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entities_vec)
+{
+    std::ofstream file("Classify.json");
+    cereal::JSONOutputArchive archive(file);
+
+    assert(!entities_vec.empty());
+    assert(has_run_model_);
+
+    const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
+    assert(opt_pca_settings.has_value());
+    const std::size_t k_bands = opt_pca_settings.value().selected_bands;
+
+    // DATA PREPROCESSING
+    std::vector<CpuMatrix> cpu_img_objects = RunThresholding(entities_vec);
+
+    const ImageSize max_obj_size = img_size_;
+
+    // Transforming to PCA dimensions
+    auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
+    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
+        max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+
+    // Getting statistical values
+    std::vector<std::vector<StatisticalParameters>> statistical_params{};
+    for (std::size_t i = 0; i < entities_vec.size(); ++i)
+    {
+        const auto &pca_object = pca_transformed_objects[i];
+        const auto entity = entities_vec[i];
+
+        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
+
+        statistic_window_.Load(entity, statistic_vector);
+        statistical_params.push_back(statistic_vector);
+    }
+
+    /// Classification
+    ObjectList objects;
+    objects.reserve(statistical_params.size());
+
+    for (const auto &statistic : statistical_params)
+    {
+        std::vector<float> statistic_vector;
+        statistic_vector.reserve(statistical_params.size() * 4);
+
+        for (const auto &stat_value : statistic)
+        {
+            statistic_vector.push_back(stat_value.mean);
+            statistic_vector.push_back(stat_value.variance);
+            statistic_vector.push_back(stat_value.skewness);
+            statistic_vector.push_back(stat_value.kurtosis);
+        }
+        objects.push_back(statistic_vector);
+    }
+
+    if (selected_model_ == "Drzewo decyzyjne")
+    {
+        LOG_INFO("Classification using decision tree");
+        return tree_.Classify(objects);
+    }
+    else if (selected_model_ == "SVM")
+    {
+        LOG_INFO("Classification using SVM");
+        return svm_.Classify(objects);
+    }
+
+    LOG_ERROR("Unspecified model");
+    throw std::runtime_error("");
+}
+
+
 void MainWindow::ShowPopupsWindow()
 {
    if (ImGui::BeginPopup("UstawieniaPopup"))
@@ -1203,71 +1279,6 @@ const char* GetAttributeName(std::size_t idx)
 
     assert(idx < attr_names_.size());
     return attr_names_[idx];
-}
-
-std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entities_vec)
-{
-    assert(!entities_vec.empty());
-    assert(has_run_model_);
-
-    const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
-    assert(opt_pca_settings.has_value());
-    const std::size_t k_bands = opt_pca_settings.value().selected_bands;
-
-    // DATA PREPROCESSING
-    std::vector<CpuMatrix> cpu_img_objects = RunThresholding(entities_vec);
-    const ImageSize max_obj_size = img_size_;
-
-    // Transforming to PCA dimensions
-    auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
-    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
-
-    // Getting statistical values
-    std::vector<std::vector<StatisticalParameters>> statistical_params{};
-    for (std::size_t i = 0; i < entities_vec.size(); ++i)
-    {
-        const auto &pca_object = pca_transformed_objects[i];
-        const auto entity = entities_vec[i];
-
-        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
-
-        statistic_window_.Load(entity, statistic_vector);
-        statistical_params.push_back(statistic_vector);
-    }
-
-    /// Classification
-    ObjectList objects;
-    objects.reserve(statistical_params.size());
-
-    for (const auto &statistic : statistical_params)
-    {
-        std::vector<float> statistic_vector;
-        statistic_vector.reserve(statistical_params.size() * 4);
-
-        for (const auto &stat_value : statistic)
-        {
-            statistic_vector.push_back(stat_value.mean);
-            statistic_vector.push_back(stat_value.variance);
-            statistic_vector.push_back(stat_value.skewness);
-            statistic_vector.push_back(stat_value.kurtosis);
-        }
-        objects.push_back(statistic_vector);
-    }
-
-    if (selected_model_ == "Drzewo decyzyjne")
-    {
-        LOG_INFO("Classification using decision tree");
-        return tree_.Classify(objects);
-    }
-    else if (selected_model_ == "SVM")
-    {
-        LOG_INFO("Classification using SVM");
-        return svm_.Classify(objects);
-    }
-
-    LOG_ERROR("Unspecified model");
-    throw std::runtime_error("");
 }
 
 std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &entities_vec)
