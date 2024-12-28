@@ -778,6 +778,7 @@ void MainWindow::Show()
     }
 
     ImGui::Spacing();
+    ImGui::SeparatorText("Uczenie");
 
     if (ImGui::Button("Wczytaj dane"))
     {
@@ -876,9 +877,24 @@ void MainWindow::Show()
     }
 
     ImGui::Spacing();
-    if (ImGui::Button("Zapisz wyniki przetwarzania"))
+    ImGui::SeparatorText("Testowanie");
+
+    if (has_run_model_)
     {
-        SaveStatisticValues();
+        if (ImGui::Button("Wczytaj dane testowe"))
+        {
+            ImGui::OpenPopup("Wczytaywanie danych testowych");
+        }
+        ImGui::Spacing();
+
+        if (ImGui::Button("Zapisz wyniki"))
+        {
+            SaveTestClassification();
+        }
+    }
+    else
+    {
+        ImGui::Text("Brak modelu!");
     }
 
     ShowPopupsWindow();
@@ -919,12 +935,13 @@ void MainWindow::Show()
     ImGui::End();
 }
 
-void MainWindow::SaveStatisticValues()
+void MainWindow::SaveTestClassification()
 {
-    std::ofstream file{"Saved_data.json"};
-    cereal::JSONOutputArchive archive(file);
+    std::ofstream file{"test_data_classification.json"};
 
-    statistic_window_.serialize(archive);
+    const auto test_entities = test_input_window_.GetLoadedEntities();
+    const auto result = RunClassify(test_entities);
+    SaveClassificationResult(test_entities, result, file);
 }
 
 void MainWindow::RunModels()
@@ -1220,6 +1237,12 @@ void MainWindow::ShowPopupsWindow()
     if (ImGui::BeginPopup("Klasyfikacja##Klasyfikacja_okno"))
     {
         data_classification_window_.Show();
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("Wczytaywanie danych testowych"))
+    {
+        test_input_window_.Show();
         ImGui::EndPopup();
     }
 }

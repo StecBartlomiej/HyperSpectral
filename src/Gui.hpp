@@ -248,7 +248,7 @@ class MainWindow
 public:
     void Show();
 
-    void SaveStatisticValues();
+    void SaveTestClassification();
 
     void RunModels();
 
@@ -274,6 +274,7 @@ private:
     TransformedImageWindow pca_transformed_window_{};
     ThresholdPopupWindow threshold_popup_window_{};
     DataInputImageWindow data_input_window_{};
+    DataInputImageWindow test_input_window_{};
     PcaPopupWindow pca_popup_window_{};
     StatisticWindow statistic_window_{};
     DataClassificationWindow data_classification_window_{};
