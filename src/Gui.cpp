@@ -352,6 +352,11 @@ void DataInputImageWindow::Show()
 
     if (ImGui::Button("Wczytaj"))
     {
+        if (envi_header_path_.empty())
+        {
+            LOG_WARN("Select ENVI header file");
+            return;
+        }
         LoadImages();
         ImGui::CloseCurrentPopup();
     }
@@ -359,6 +364,7 @@ void DataInputImageWindow::Show()
 
 void DataInputImageWindow::LoadImages()
 {
+    selected_entity_.clear();
     for (const auto &[filepath, is_enabled] : selected_files_)
     {
         if (!is_enabled)
