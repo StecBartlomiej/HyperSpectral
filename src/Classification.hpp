@@ -102,4 +102,6 @@ struct TrainingTestData
 
 [[nodsicard]] TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count, float split_ratio);
 
+void SaveClassificationResult(const std::vector<Entity> &data, const std::vector<uint32_t> &data_classes, std::ostream &out);
+
 #endif //CLASSIFICATION_HPP

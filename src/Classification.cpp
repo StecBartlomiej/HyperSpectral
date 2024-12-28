@@ -5,10 +5,17 @@
 #include <cassert>
 #include <cmath>
 #include <algorithm>
+#include <Components.hpp>
 
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <fstream>
+#include <map>
+#include <cereal/archives/json.hpp>
+#include <cereal/types/map.hpp>
+
+extern Coordinator coordinator;
 
 
 bool IsLeaf(const Node *node) noexcept
@@ -357,7 +364,7 @@ std::vector<uint32_t> SVM::Classify(const ObjectList &x)
         float f = 0.f;
         for (std::size_t i = 0; i < x_.size(); ++i)
         {
-            f += alpha_[i] * y_[i] * kernel_(x[i], attr) + b_;
+            f += alpha_[i] * y_[i] * kernel_(x_[i], attr) + b_;
         }
 
         class_result.push_back(f >= 0 ? 1 : 0);
@@ -546,4 +553,19 @@ TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::ve
     }
 
     return data;
+}
+
+void SaveClassificationResult(const std::vector<Entity> &data, const std::vector<uint32_t> &data_classes, std::ostream &out)
+{
+    assert(data.size() == data_classes.size());
+
+    cereal::JSONOutputArchive archive(out);
+    std::map<std::string, uint32_t> map{};
+
+    for (std::size_t i = 0; i < data.size(); ++i)
+    {
+        const auto filename = coordinator.GetComponent<FilesystemPaths>(data[i]).img_data.filename().string();
+        map[filename] = data_classes[i];
+    }
+    archive(cereal::make_nvp("Classification_result", map));
 }

@@ -806,9 +806,16 @@ void MainWindow::Show()
 
     if (ImGui::Button("Progowanie", button_size))
     {
-        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
-        threshold_popup_window_.Load(cpu_img);
-        ImGui::OpenPopup("Progowanie##Okno progowania");
+        if (selected_img_name_.empty())
+        {
+            LOG_WARN(reinterpret_cast<const char*>(u8"Wyświelt obraz przed progowaniem"));
+        }
+        else
+        {
+            auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+            threshold_popup_window_.Load(cpu_img);
+            ImGui::OpenPopup("Progowanie##Okno progowania");
+        }
     }
 
     ImGui::SameLine();
@@ -936,7 +943,9 @@ void MainWindow::RunModels()
         const auto error = std::count_if(test_classes.cbegin(), test_classes.cend(),
                         [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
 
-        LOG_INFO("Classification score for test values: {}", error);
+        std::ofstream file("Wynik_klasyfikacji_dla_zbioru_walidacyjnego.json");
+        SaveClassificationResult(test_entity, class_result, file);
+        LOG_INFO("Classification score for test values: {}. Result saved to file \"Wynik_klasyfikacji_dla_zbioru_walidacyjnego.json\"", error);
     }
     else if (k_folds_ >= 2)
     {
@@ -972,8 +981,11 @@ void MainWindow::RunModels()
             GetFold(folds_idx, entities_vec, obj_classes, best_test_fold_idx);
 
         RunTrain(training_entity);
+        const auto class_result = RunClassify(test_entity);
 
-        LOG_INFO("Best classification score for test values: {}", best_error);
+        std::ofstream file("Wynik_klasyfikacji_dla_zbioru_walidacyjnego.json");
+        SaveClassificationResult(test_entity, class_result, file);
+        LOG_INFO("Best classification score for test values: {}. Result saved to file \"Wynik_klasyfikacji_dla_zbioru_walidacyjnego.json\"", best_error);
     }
 }
 
