@@ -454,10 +454,12 @@ void SettingsPopupWindow()
         {
             case 0:
                 ImGui::StyleColorsDark();
+                ImNodes::StyleColorsDark();
                 style.FrameBorderSize  = 0.0f;
             break;
             case 1:
                 ImGui::StyleColorsLight();
+                ImNodes::StyleColorsLight();
                 style.FrameBorderSize  = 1.0f;
             break;
             default:
