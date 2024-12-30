@@ -75,7 +75,7 @@ GLFWwindow* CreateWindow()
     }
 
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // Enable vsync
+    // glfwSwapInterval(1); // Enable vsync
 
     int version = gladLoadGL(glfwGetProcAddress);
     if (version == 0)
@@ -872,7 +872,13 @@ void MainWindow::Show()
     }
 
     ImGui::Spacing();
+    if (ImGui::Button("Uruchom preprocessing"))
+    {
+        const std::vector<Entity> &entities_vec = data_input_window_.GetLoadedEntities();
+        RunPca(entities_vec);
+    }
 
+    ImGui::Spacing();
     if (ImGui::Button("Uruchom uczenie"))
     {
         RunModels();
@@ -1055,24 +1061,12 @@ void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
 
     /// IMAGE PREPROCESSING
     std::vector<CpuMatrix> cpu_img_objects = RunThresholding(entities_vec);
-    ImageSize max_obj_size = img_size_;
 
     /// PCA
+    RunPca(entities_vec);
+
     auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
-    result_pca_ = PCA(LoadData,  max_obj_size.depth, max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
-
-    /// Get most important eigenvectors
-    result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
-    std::ostringstream oss;
-
-    const auto max_i = result_pca_.eigenvalues.size.height;
-    for (std::size_t i = 0; i < k_bands; ++i)
-    {
-        oss << result_pca_.eigenvalues.data[max_i - i - 1] << ", ";
-    }
-    LOG_INFO("PCA Result: {} highest eigenvalues: {}", k_bands, oss.str());
-    has_run_pca_ = true;
-    UpdatePcaImage();
+    ImageSize max_obj_size = img_size_;
 
     /// Get statistical values
     const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
@@ -1132,16 +1126,13 @@ void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
     }
 
     const auto end = std::chrono::high_resolution_clock::now();
-    LOG_INFO("RunAll took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    LOG_INFO("Training took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
 
     has_run_model_ = true;
 }
 
 std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entities_vec)
 {
-    std::ofstream file("Classify.json");
-    cereal::JSONOutputArchive archive(file);
-
     assert(!entities_vec.empty());
     assert(has_run_model_);
 
@@ -1311,6 +1302,55 @@ void MainWindow::ImagePreprocessing()
     }
 }
 
+void MainWindow::RunPca(const std::vector<Entity> &entities_vec)
+{
+    if (selected_img_name_.empty())
+    {
+        LOG_WARN("RunPCA: image is empty");
+        return;
+    }
+    if (entities_vec.empty())
+    {
+        LOG_WARN("RunPCA: empty entities vector");
+        return;
+    }
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
+    if (!opt_pca_settings.has_value())
+    {
+        LOG_WARN("RunTrain: PCA settings not set");
+        return;
+    }
+    const std::size_t k_bands = opt_pca_settings.value().selected_bands;
+
+    /// IMAGE PREPROCESSING
+    std::vector<CpuMatrix> cpu_img_objects = RunThresholding(entities_vec);
+    ImageSize max_obj_size = img_size_;
+
+    /// PCA
+    LOG_INFO("Starts PCA");
+    auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
+    result_pca_ = PCA(LoadData,  max_obj_size.depth, max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+
+    /// Get most important eigenvectors
+    result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
+    std::ostringstream oss;
+
+    const auto max_i = result_pca_.eigenvalues.size.height;
+    for (std::size_t i = 0; i < k_bands; ++i)
+    {
+        oss << result_pca_.eigenvalues.data[max_i - i - 1] << ", ";
+    }
+    LOG_INFO("PCA Result: {} highest eigenvalues: {}", k_bands, oss.str());
+    has_run_pca_ = true;
+    UpdatePcaImage();
+    LOG_INFO("Ended PCA");
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    LOG_INFO("Training took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+}
+
 const char* GetAttributeName(std::size_t idx)
 {
     const static std::array<const char*, 4> attr_names_ = {
@@ -1336,24 +1376,41 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
     std::vector<CpuMatrix> cpu_img_objects;
     cpu_img_objects.reserve(entities_vec.size());
 
+    auto max_img_size = coordinator.GetComponent<ImageSize>(entities_vec.front());
     if (add_neighbour_bands_)
     {
         LOG_INFO("Adding neighbour bands for texture analysis");
+        max_img_size.depth *= 9;
+        max_img_size.width = 0;
+        max_img_size.height = 1;
+
         for (const auto entity : entities_vec)
         {
-            auto original_img = GetImageData(entity);
-            auto cpu_img = AddNeighboursBand(original_img.GetMatrix(), original_img.size);
-            img_size_ = cpu_img.size;
+            CpuMatrix cpu_object = [&]() {
+                auto original_img = GetImageData(entity);
+                auto cpu_img = AddNeighboursBand(original_img.GetMatrix(), original_img.size);
 
-            const auto mask = RunImageThreshold(cpu_img, threshold_setting);
+                const auto mask = RunImageThreshold(cpu_img, threshold_setting);
 
-            /// Object on mask
-            auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
-            cpu_img_objects.push_back(cpu_object);
+                // Get size of mask
+                float pixel_width = SumAllCuda(mask.GetMatrix());
+                LOG_INFO("Pixel count in mask {}", pixel_width);
+                if (pixel_width > max_img_size.width)
+                {
+                    max_img_size.width = static_cast<uint32_t>(pixel_width);
+                }
+
+                /// Object on mask
+                return GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+            }();
+
+            cpu_img_objects.push_back(std::move(cpu_object));
         }
     }
     else
     {
+        max_img_size.width = 0;
+        max_img_size.height = 1;
         for (const auto entity : entities_vec)
         {
             auto cpu_img = GetImageData(entity);
@@ -1361,10 +1418,20 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
 
             const auto mask = RunImageThreshold(cpu_img, threshold_setting);
 
+            float pixel_width = SumAllCuda(mask.GetMatrix());
+            LOG_INFO("Pixel count in mask {}", pixel_width);
+            if (pixel_width > max_img_size.width)
+            {
+                max_img_size.width = static_cast<uint32_t>(pixel_width);
+            }
+
+
             /// Object on mask
             auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
             cpu_img_objects.push_back(cpu_object);
         }
     }
+    LOG_INFO("Ended thresholding");
+    img_size_ = max_img_size;
     return std::move(cpu_img_objects);
 }

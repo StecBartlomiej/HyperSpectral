@@ -32,4 +32,4 @@ add_subdirectory(src)
 add_subdirectory(tests)
 
 add_executable(hypercpp main.cpp)
-target_link_libraries(hypercpp PUBLIC lib_hypercpp lib_gui)
+target_link_libraries(hypercpp PUBLIC lib_hypercpp lib_gui --static)

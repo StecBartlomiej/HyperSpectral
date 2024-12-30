@@ -1,6 +1,7 @@
 #include "Image.hpp"
 
 #include <cassert>
+#include <Classification.hpp>
 #include <EntityComponentSystem.hpp>
 #include <filesystem>
 #include <string>
@@ -10,6 +11,11 @@
 #include <numeric>
 #include <span>
 #include <cmath>
+
+#include <thrust/transform.h>
+#include <thrust/device_vector.h>
+#include <thrust/functional.h>
+#include <thrust/execution_policy.h>
 
 extern Coordinator coordinator;
 
@@ -249,6 +255,7 @@ Matrix CovarianceMatrix(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t
     dim3 threads_matmul{64, 16};
     dim3 blocks_matmul{(max_height / 64) + 1, (max_width / 16) + 1};
 
+    LOG_INFO("Start calculation of mean");
 
     blocking_load_img(0, img);
     for (std::size_t i = 0; i < data_count - 1; ++i)
@@ -263,7 +270,7 @@ Matrix CovarianceMatrix(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t
     }
     SumRows<<<blocks_sum, threads_sum, 0, stream1>>>(img, mean);
     PieceWiseDivision<<<blocks_division, threads_division, 0, stream1>>>(mean, static_cast<float>(img.pixels_width * data_count));
-
+    CudaAssert(cudaStreamSynchronize(stream1));
 
     blocking_load_img(0, img);
     for (std::size_t i = 0; i < data_count - 1; ++i)
@@ -279,9 +286,11 @@ Matrix CovarianceMatrix(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t
     }
     SubtractMean<<<blocks_subtract, threads_subtract, 0, stream1>>>(img, mean);
     MatMulTrans<<<blocks_matmul, threads_matmul, 0, stream1>>>(img, cov);
-    PieceWiseDivision<<<blocks_division_2, threads_division_2, 0, stream1>>>(cov, static_cast<float>(img.pixels_width * data_count));
-    cudaStreamSynchronize(stream1);
+    CudaAssert(cudaStreamSynchronize(stream1));
 
+    PieceWiseDivision<<<blocks_division_2, threads_division_2, 0, stream1>>>(cov, static_cast<float>(img.pixels_width * data_count));
+    CudaAssert(cudaStreamSynchronize(stream1));
+    LOG_INFO("End covariance matrix");
 
     CudaAssert(cudaFree(img.data));
     CudaAssert(cudaFree(mean.data));
@@ -297,7 +306,9 @@ ResultPCA PCA(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_heigh
     cudaStream_t stream1;
     CudaAssert(cudaStreamCreateWithFlags(&stream1, cudaStreamNonBlocking));
 
+    LOG_INFO("Start covariance matrix calculation");
     Matrix cov = CovarianceMatrix(LoadData, max_height, max_width, data_count);
+    LOG_INFO("Ended covariance matrix calculation");
 
     float *d_eigenvalues = nullptr;
     CudaAssert(cudaMalloc(&d_eigenvalues, max_height * sizeof(float)));
@@ -516,7 +527,7 @@ CpuMatrix AddNeighboursBand(Matrix img, ImageSize size)
         static_cast<unsigned int>(old_img.bands_height)
     };
     ConcatNeighboursBand<<<blocks, threads>>>(old_img, size, new_img, new_size);
-
+    cudaFree(old_img.data);
 
     CpuMatrix cpu_matrix{
         new_size,
@@ -525,7 +536,6 @@ CpuMatrix AddNeighboursBand(Matrix img, ImageSize size)
 
     CudaAssert(cudaMemcpy(cpu_matrix.data.get(), new_img.data, sizeof(float) * new_img.bands_height * new_img.pixels_width, cudaMemcpyDeviceToHost));
 
-    cudaFree(old_img.data);
     cudaFree(new_img.data);
 
     return std::move(cpu_matrix);

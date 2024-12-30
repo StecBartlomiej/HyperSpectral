@@ -15,6 +15,44 @@
 
 #include <cereal/types/vector.hpp>
 
+#ifdef DEBUG
+#define CudaAssert(code) \
+{  \
+    if (code != cudaSuccess) \
+    { \
+        LOG_ERROR("CUDA assert: {} at {}:{}\n", cudaGetErrorString(code), __FILE__, __LINE__); \
+        exit(code); \
+    } \
+}
+
+#define CusolverAssert(code)\
+{ \
+    if (code != CUSOLVER_STATUS_SUCCESS) \
+    { \
+        LOG_ERROR("CUSOLVER error {} at {}:{}\n", static_cast<int>(code), __FILE__, __LINE__); \
+        exit(code); \
+    } \
+}
+#else
+inline void CudaAssert(cudaError_t code) \
+{
+    if (code != cudaSuccess)
+    {
+        LOG_ERROR("CUDA assert: {}\n", cudaGetErrorString(code));
+        exit(code);
+    }
+}
+
+inline void CusolverAssert(cusolverStatus_t code)
+{
+    if (code != CUSOLVER_STATUS_SUCCESS)
+    {
+        LOG_ERROR("CUSOLVER error {}\n", static_cast<int>(code));
+        exit(code);
+    }
+}
+#endif
+
 
 struct CpuMatrix;
 
@@ -80,24 +118,6 @@ template<typename T>
         }
     }
     return std::move(host_data);
-}
-
-inline void CudaAssert(cudaError_t code, bool abort=true)
-{
-    if (code != cudaSuccess)
-    {
-        LOG_ERROR("CUDA assert: {} at {}:{}\n", cudaGetErrorString(code), __FILE__, __LINE__);
-        if (abort) exit(code);
-    }
-}
-
-inline void CusolverAssert(cusolverStatus_t code, bool abort=true)
-{
-    if (code != CUSOLVER_STATUS_SUCCESS)
-    {
-        LOG_ERROR("CUSOLVER error {} at {}:{}\n", static_cast<int>(code), __FILE__, __LINE__);
-        if (abort) exit(code);
-    }
 }
 
 
@@ -223,7 +243,7 @@ struct ResultPCA
 
 [[nodiscard]] std::size_t SumAll(Matrix img);
 
-__global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img);
+__global__ void ConcatNeighboursBand(Matrix img, ImageSize old_size, ImageSize new_size);
 
 [[nodiscard]] CpuMatrix AddNeighboursBand(Matrix img, ImageSize size);
 
@@ -233,6 +253,8 @@ __global__ void ConcatNeighboursBand(Matrix old_img, Matrix new_img);
                std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_pixels, std::size_t data_count);
 
 [[nodsicard]] CpuMatrix GetImportantEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_bands);
+
+[[nodiscard]] float SumAllCuda(Matrix data);
 
 struct StatisticalParameters
 {

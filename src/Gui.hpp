@@ -269,6 +269,8 @@ private:
 
     void ImagePreprocessing();
 
+    void RunPca(const std::vector<Entity> &entities_vec);
+
 private:
     ImageViewWindow threshold_window_{};
     TransformedImageWindow pca_transformed_window_{};
