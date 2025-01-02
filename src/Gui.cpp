@@ -862,6 +862,25 @@ void MainWindow::Show()
     }
 
     ImGui::Spacing();
+    constexpr static std::array<std::string_view, 2> approach_names = {"Obiekt", "Piksel"};
+    ImGui::SetNextItemWidth(100.f);
+    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Sposób przetwarzania"), approach_names[approach_type_].data()))
+    {
+        int i = 0;
+        for (const auto name: approach_names)
+        {
+            ImGui::PushID(i);
+            if (ImGui::Selectable(name.data(), false))
+            {
+                approach_type_ = i;
+            }
+            ImGui::PopID();
+            ++i;
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::Spacing();
     ImGui::SeparatorText("Uczenie");
 
     if (ImGui::Button("Wczytaj dane"))
@@ -893,85 +912,13 @@ void MainWindow::Show()
 
     ImGui::Spacing();
 
-    static constexpr ImVec2 button_size{80, 25};
-
-    if (ImGui::Button("Progowanie", button_size))
+    if (approach_type_ == 0)
     {
-        if (selected_img_name_.empty())
-        {
-            LOG_WARN(reinterpret_cast<const char*>(u8"Wyświelt obraz przed progowaniem"));
-        }
-        else
-        {
-            auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
-            threshold_popup_window_.Load(cpu_img);
-            ImGui::OpenPopup("Progowanie##Okno progowania");
-        }
+        ShowObjectApproach();
     }
-
-    ImGui::SameLine();
-    if (ImGui::Button("PCA", button_size))
+    else
     {
-        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
-        pca_popup_window_.SetMaxBands(cpu_img.size.depth);
-        ImGui::OpenPopup("Ustawienia PCA");
-    }
-
-    ImGui::SameLine();
-    if (ImGui::Button("Klasyfikacja", button_size))
-    {
-        data_classification_window_.Load(data_input_window_.GetLoadedEntities());
-        ImGui::OpenPopup("Klasyfikacja##Klasyfikacja_okno");
-    }
-
-    ImGui::Spacing();
-    if (ImGui::Button(reinterpret_cast<const char*>(u8"Wczytaj tabelę prawd"), button_size))
-    {
-        ImGui::OpenPopup("Tabela prawdy");
-    }
-
-    ImGui::Spacing();
-
-    ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
-
-    static bool has_kfold = false;
-
-    ImGui::Spacing();
-
-    if (ImGui::Checkbox(reinterpret_cast<const char*>(u8"Disjoint sampling_"), &has_disjoint_sampling_) && has_disjoint_sampling_)
-    {
-        has_kfold = false;
-    }
-
-    if (has_disjoint_sampling_)
-    {
-        if (ImGui::Button(reinterpret_cast<const char*>(u8"Zobacz próbki"), button_size))
-        {
-            auto opt_entity = threshold_window_.LoadedEntity();
-            if (!opt_entity.has_value())
-            {
-                LOG_WARN("Load entity before viewing patches");
-            }
-            else
-            {
-                patch_view_.Load(opt_entity.value());
-                ImGui::OpenPopup("Okno patch");
-            }
-        }
-    }
-
-
-    ImGui::Spacing();
-    if (ImGui::Checkbox(reinterpret_cast<const char*>(u8"K-krzyżowa walidacji"), &has_kfold) && has_kfold)
-    {
-           has_disjoint_sampling_ = true;
-    }
-
-    ImGui::Spacing();
-    if (has_kfold)
-    {
-        ImGui::SliderInt(reinterpret_cast<const char*>(u8"K-krzyżowa walidacja"), &k_folds_,
-            1, 15, "%d", ImGuiSliderFlags_AlwaysClamp);
+        ShowPixelApproach();
     }
 
     ImGui::Spacing();
@@ -992,13 +939,6 @@ void MainWindow::Show()
             ++i;
         }
         ImGui::EndCombo();
-    }
-
-    ImGui::Spacing();
-    if (ImGui::Button("Uruchom preprocessing"))
-    {
-        const std::vector<Entity> &entities_vec = data_input_window_.GetLoadedEntities();
-        RunPca(entities_vec);
     }
 
     ImGui::Spacing();
@@ -1080,7 +1020,7 @@ void MainWindow::RunModels()
     const std::vector<Entity> &entities_vec = data_input_window_.GetLoadedEntities();
 
     // Split data
-    if (has_disjoint_sampling_)
+    if (approach_type_ == 1)
     {
         LOG_INFO("Running training with disjoint sampling");
         if (entities_vec.size() != 1)
@@ -1560,6 +1500,102 @@ void MainWindow::ShowPopupsWindow()
         ImGui::EndPopup();
     }
 
+}
+
+void MainWindow::ShowPixelApproach()
+{
+    static constexpr ImVec2 button_size{80, 25};
+
+    if (ImGui::Button("Progowanie", button_size))
+    {
+        if (selected_img_name_.empty())
+        {
+            LOG_WARN(reinterpret_cast<const char*>(u8"Wyświelt obraz przed progowaniem"));
+        }
+        else
+        {
+            auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+            threshold_popup_window_.Load(cpu_img);
+            ImGui::OpenPopup("Progowanie##Okno progowania");
+        }
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("PCA", button_size))
+    {
+        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+        pca_popup_window_.SetMaxBands(cpu_img.size.depth);
+        ImGui::OpenPopup("Ustawienia PCA");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button(reinterpret_cast<const char*>(u8"Tabela prawd"), button_size))
+    {
+        ImGui::OpenPopup("Tabela prawdy");
+    }
+
+    ImGui::Spacing();
+
+    ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
+
+
+    ImGui::Spacing();
+
+    if (ImGui::Button(reinterpret_cast<const char*>(u8"Zobacz próbki")))
+    {
+        auto opt_entity = threshold_window_.LoadedEntity();
+        if (!opt_entity.has_value())
+        {
+            LOG_WARN("Load entity before viewing patches");
+        }
+        else
+        {
+            patch_view_.Load(opt_entity.value());
+            ImGui::OpenPopup("Okno patch");
+        }
+    }
+    ImGui::Spacing();
+}
+
+void MainWindow::ShowObjectApproach()
+{
+  static constexpr ImVec2 button_size{80, 25};
+
+    if (ImGui::Button("Progowanie", button_size))
+    {
+        if (selected_img_name_.empty())
+        {
+            LOG_WARN(reinterpret_cast<const char*>(u8"Wyświelt obraz przed progowaniem"));
+        }
+        else
+        {
+            auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+            threshold_popup_window_.Load(cpu_img);
+            ImGui::OpenPopup("Progowanie##Okno progowania");
+        }
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("PCA", button_size))
+    {
+        auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
+        pca_popup_window_.SetMaxBands(cpu_img.size.depth);
+        ImGui::OpenPopup("Ustawienia PCA");
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Klasyfikacja", button_size))
+    {
+        data_classification_window_.Load(data_input_window_.GetLoadedEntities());
+        ImGui::OpenPopup("Klasyfikacja##Klasyfikacja_okno");
+    }
+
+    ImGui::Spacing();
+    ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
+
+    ImGui::Spacing();
+    ImGui::SliderInt(reinterpret_cast<const char*>(u8"K-krzyżowa walidacja"), &k_folds_,
+        1, 15, "%d", ImGuiSliderFlags_AlwaysClamp);
 }
 
 void MainWindow::UpdateThresholdImage()

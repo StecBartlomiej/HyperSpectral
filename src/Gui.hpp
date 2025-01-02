@@ -295,6 +295,10 @@ private:
 
     void ShowPopupsWindow();
 
+    void ShowPixelApproach();
+
+    void ShowObjectApproach();
+
     void UpdateThresholdImage();
 
     void UpdatePcaImage();
@@ -325,6 +329,7 @@ private:
     std::string_view selected_model_;
     std::string selected_img_name_{};
     int k_folds_ = 1;
+    int approach_type_ = 0;
     bool has_run_pca_ = false;
     bool has_run_model_ = false;
     bool add_neighbour_bands_ = false;
