@@ -212,7 +212,37 @@ private:
     int class_count_ = 1;
 };
 
+class ImagePatchView
+{
+public:
+    void Show();
 
+    void Load(Entity img);
+
+private:
+    Entity parent_{};
+    PatchSystem patch_system_{};
+    Image patch_image_{};
+    ImageSize patch_size_{};
+    int selected_band_ = 1;
+    int patch_count = 0;
+    int patch_index_ = 0;
+};
+
+
+class LabelPopupWindow
+{
+public:
+    void Show();
+
+    [[nodiscard]] auto GetLabelFile() const { return label_file_; };
+
+    [[nodiscard]] int GetClassCount() const { return class_count_; };
+
+private:
+    std::filesystem::path label_file_{};
+    int class_count_ = 1;
+};
 
 class TreeViewWindow
 {
@@ -259,6 +289,8 @@ public:
 private:
     void RunTrain(const std::vector<Entity> &entities_vec);
 
+    void RunTrainDisjoint(Entity image);
+
     [[nodiscard]] std::vector<CpuMatrix> RunThresholding(const std::vector<Entity> &entities_vec);
 
     void ShowPopupsWindow();
@@ -282,6 +314,8 @@ private:
     DataClassificationWindow data_classification_window_{};
     TreeViewWindow tree_view_window_{};
     SvmViewWindow svm_view_window_{};
+    ImagePatchView patch_view_{};
+    LabelPopupWindow label_popup_window_{};
     Tree tree_{};
     SVM svm_{};
     std::vector<CpuMatrix> pca_transformed_images_{};
@@ -290,10 +324,11 @@ private:
     ImageSize img_size_{};
     std::string_view selected_model_;
     std::string selected_img_name_{};
+    int k_folds_ = 1;
     bool has_run_pca_ = false;
     bool has_run_model_ = false;
     bool add_neighbour_bands_ = false;
-    int k_folds_ = 1;
+    bool has_disjoint_sampling_ = false;
 };
 
 

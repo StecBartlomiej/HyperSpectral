@@ -27,6 +27,12 @@ struct ImageSize
     }
 };
 
+struct PatchData
+{
+    std::size_t center_x;
+    std::size_t center_y;
+    constexpr static std::size_t S = 9;
+};
 
 [[nodiscard]] bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept;
 

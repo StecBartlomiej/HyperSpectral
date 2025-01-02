@@ -12,6 +12,9 @@
 #include <map>
 #include <chrono>
 #include <fstream>
+#include <numeric>
+#include <ranges>
+#include <random>
 
 
 extern Coordinator coordinator;
@@ -619,6 +622,85 @@ void DataClassificationWindow::Load(std::vector<Entity> entities)
 }
 
 
+void ImagePatchView::Show()
+{
+    if (ImGui::SliderInt("Indeks##idx_patch",  &patch_index_, 1, patch_count, "%d", ImGuiSliderFlags_ClampOnInput))
+    {
+        patch_image_.LoadImage(patch_system_.GetPatchImage(patch_index_ - 1));
+    }
+
+    if (ImGui::SliderInt("Pasmo##PASMO_idx_patch",  &selected_band_, 1, patch_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+    {
+        patch_image_.SetBand(selected_band_);
+        // RunThreshold();
+    }
+
+    // if (ImGui::InputFloat(reinterpret_cast<const char *>(u8"Próg"), &threshold_value_, 0.01f, 1.f))
+    // {
+    //     RunThreshold();
+    // }
+
+    patch_image_.Show(10, 10);
+
+    // if (ImGui::Button("Zapisz"))
+    // {
+    //     // saved_settings_ = {.threshold = threshold_value_, .band = selected_band_};
+    //     // LOG_INFO("Threshold popup window, saved settings: threshold={}, band={}", threshold_value_, selected_band_);
+    //     // ImGui::CloseCurrentPopup();
+    // }
+}
+
+void ImagePatchView::Load(Entity img)
+{
+    patch_system_.parent_img = img;
+    parent_ = img;
+
+    const auto size = coordinator.GetComponent<ImageSize>(parent_);
+
+    patch_image_.LoadImage(patch_system_.GetPatchImage(0));
+
+    patch_count = patch_system_.GetPatchNumbers(size);
+    LOG_INFO("Patch count: {}", patch_count);
+
+    patch_size_.width = PatchData::S;
+    patch_size_.height = PatchData::S;
+    patch_size_.depth = size.depth;
+}
+
+void LabelPopupWindow::Show()
+{
+    ImGui::SliderInt("Liczba klas",  &class_count_, 1, 16, "%d", ImGuiSliderFlags_ClampOnInput);
+
+    static const std::filesystem::path loading_image_path_{R"(E:\Praca inzynierska\HSI images\)"};
+
+    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Plki tabeli prawd"), label_file_.string().c_str()))
+    {
+        std::size_t idx = 0;
+        for (const auto& filepath: std::filesystem::directory_iterator(loading_image_path_))
+        {
+            if (!filepath.is_regular_file() || filepath.path().extension() != ".dat")
+                continue;
+
+            ImGui::PushID(reinterpret_cast<void*>(idx));
+            const auto name = filepath.path().filename().string();
+
+            bool selected = false;
+            if (ImGui::Selectable(name.c_str(), selected))
+            {
+                label_file_ = filepath.path();
+            }
+            ImGui::PopID();
+            ++idx;
+        }
+        ImGui::EndCombo();
+    }
+
+    if (ImGui::Button("Zapisz"))
+    {
+        ImGui::CloseCurrentPopup();
+    }
+}
+
 void TreeViewWindow::Show(const Node *root)
 {
     ImNodes::BeginNodeEditor();
@@ -843,13 +925,54 @@ void MainWindow::Show()
     }
 
     ImGui::Spacing();
-
-    ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
+    if (ImGui::Button(reinterpret_cast<const char*>(u8"Wczytaj tabelę prawd"), button_size))
+    {
+        ImGui::OpenPopup("Tabela prawdy");
+    }
 
     ImGui::Spacing();
 
-    ImGui::SliderInt(reinterpret_cast<const char*>(u8"K-krzyżowa walidacja"), &k_folds_,
-        1, 15, "%d", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
+
+    static bool has_kfold = false;
+
+    ImGui::Spacing();
+
+    if (ImGui::Checkbox(reinterpret_cast<const char*>(u8"Disjoint sampling_"), &has_disjoint_sampling_) && has_disjoint_sampling_)
+    {
+        has_kfold = false;
+    }
+
+    if (has_disjoint_sampling_)
+    {
+        if (ImGui::Button(reinterpret_cast<const char*>(u8"Zobacz próbki"), button_size))
+        {
+            auto opt_entity = threshold_window_.LoadedEntity();
+            if (!opt_entity.has_value())
+            {
+                LOG_WARN("Load entity before viewing patches");
+            }
+            else
+            {
+                patch_view_.Load(opt_entity.value());
+                ImGui::OpenPopup("Okno patch");
+            }
+        }
+    }
+
+
+    ImGui::Spacing();
+    if (ImGui::Checkbox(reinterpret_cast<const char*>(u8"K-krzyżowa walidacji"), &has_kfold) && has_kfold)
+    {
+           has_disjoint_sampling_ = true;
+    }
+
+    ImGui::Spacing();
+    if (has_kfold)
+    {
+        ImGui::SliderInt(reinterpret_cast<const char*>(u8"K-krzyżowa walidacja"), &k_folds_,
+            1, 15, "%d", ImGuiSliderFlags_AlwaysClamp);
+    }
 
     ImGui::Spacing();
 
@@ -955,12 +1078,25 @@ void MainWindow::SaveTestClassification()
 void MainWindow::RunModels()
 {
     const std::vector<Entity> &entities_vec = data_input_window_.GetLoadedEntities();
-    const std::vector<uint32_t> obj_classes = GetObjectClasses(entities_vec);
-    const std::size_t class_count = data_classification_window_.GetClassCount();
 
     // Split data
-    if (k_folds_ == 1)
+    if (has_disjoint_sampling_)
     {
+        LOG_INFO("Running training with disjoint sampling");
+        if (entities_vec.size() != 1)
+        {
+            LOG_WARN("Load only one image to run disjoint sampling!");
+            return;
+        }
+        const auto curr_entity = entities_vec.front();
+
+        RunTrainDisjoint(curr_entity);
+    }
+    else if (k_folds_ == 1)
+    {
+        const std::vector<uint32_t> obj_classes = GetObjectClasses(entities_vec);
+        const std::size_t class_count = data_classification_window_.GetClassCount();
+
         LOG_INFO("Running with random data training-test 70-30 split");
         const auto [training_entity, training_classes, test_entity, test_classes] = SplitData(entities_vec, obj_classes, class_count, 0.7);
 
@@ -980,6 +1116,9 @@ void MainWindow::RunModels()
     }
     else if (k_folds_ >= 2)
     {
+        const std::vector<uint32_t> obj_classes = GetObjectClasses(entities_vec);
+        const std::size_t class_count = data_classification_window_.GetClassCount();
+
         LOG_INFO("Running with {}-fold cross validation", k_folds_);
         const auto folds_idx = KFoldGeneration(obj_classes, class_count, k_folds_);
 
@@ -1131,6 +1270,176 @@ void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
     has_run_model_ = true;
 }
 
+void MainWindow::RunTrainDisjoint(Entity image)
+{
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    const auto size = coordinator.GetComponent<ImageSize>(image);
+
+    PatchSystem patch_system{};
+    patch_system.parent_img = image;
+
+    const auto label_file_path = label_popup_window_.GetLabelFile();
+    if (label_file_path.empty())
+    {
+        LOG_WARN("RunTrain: label file path not set");
+        return;
+    }
+    ImageLabel img_label{label_file_path, size};
+
+    const auto threshold_setting = [&]{
+        const auto opt_threshold_settings = threshold_popup_window_.GetThresholdSettings();
+        if (!opt_threshold_settings.has_value())
+        {
+            LOG_WARN("RunTrain: Threshold settings not set, running with threshold=0, band=0");
+        }
+        return opt_threshold_settings.value_or(ThresholdSetting{0.f, 0});
+    }();
+
+    const auto mask = [&]{
+        auto original_img = GetImageData(image);
+        return RunImageThreshold(original_img, threshold_setting);
+    }();
+
+    img_size_.width = PatchData::S;
+    img_size_.height= PatchData::S;
+    img_size_.depth = size.depth;
+
+    LOG_INFO("Get patch positions");
+    std::vector<PatchData> patch_positions;
+    std::vector<uint8_t> patch_label;
+    for (std::size_t y = 0; y < mask.size.height; ++y)
+    {
+        for (std::size_t x = 0; x < mask.size.width; ++x)
+        {
+            if (mask.data[y * mask.size.width + x] == 0.f)
+                continue;
+
+            const uint8_t label = img_label.GetLabels({x, y});
+            if (label == 0)
+                continue;
+
+            patch_positions.emplace_back(x, y);
+            patch_label.push_back(label - 1);
+        }
+    }
+    assert(!patch_positions.empty());
+    assert(patch_positions.size() == patch_label.size());
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    std::vector<std::size_t> indexes(patch_positions.size(), 0);
+    std::iota(indexes.begin(), indexes.end(), 0);
+    std::ranges::shuffle(indexes, g);
+
+    LOG_INFO("Run PCA on patches");
+    const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
+    if (!opt_pca_settings.has_value())
+    {
+        LOG_WARN("RunTrain: PCA settings not set");
+        return;
+    }
+    const std::size_t k_bands = opt_pca_settings.value().selected_bands;
+
+    /// PCA
+    auto LoadData = [&](std::size_t i) -> CpuMatrix {
+        assert(i < indexes.size());
+
+        const auto idx = indexes[i];
+        const auto [x, y] = patch_positions[idx];
+        const auto patch_idx = y * size.width + x;
+
+        CpuMatrix patch = patch_system.GetPatchImage(patch_idx);
+
+        if (add_neighbour_bands_)
+            patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
+
+        const auto patch_mask = RunImageThreshold(patch, threshold_setting);
+
+        return GetObjectFromMask(patch.GetMatrix(), patch_mask.GetMatrix());
+    };
+
+    result_pca_ = PCA(LoadData,  img_size_.depth, img_size_.height * img_size_.width, indexes.size());
+    result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
+
+    const auto max_i = result_pca_.eigenvalues.size.height;
+    std::ostringstream oss;
+    for (std::size_t i = 0; i < k_bands; ++i)
+    {
+        oss << result_pca_.eigenvalues.data[max_i - i - 1] << ", ";
+    }
+    LOG_INFO("PCA Result: {} highest eigenvalues: {}", k_bands, oss.str());
+    has_run_pca_ = true;
+    UpdatePcaImage();
+
+    LOG_INFO("Run projection of PCA on patches");
+    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
+        img_size_.height * img_size_.width, indexes.size());
+
+    LOG_INFO("Calculate statistiacal params on patches");
+    statistical_params_.clear();
+    for (const auto & pca_object : patches)
+    {
+        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
+        statistical_params_.push_back(statistic_vector);
+    }
+
+    /// CLASSIFICATION, choose SVM or TREE
+    LOG_INFO("Run classification");
+    const auto class_count = label_popup_window_.GetClassCount();
+    ObjectList objects;
+    std::vector<uint32_t> obj_classes;
+
+    assert(statistical_params_.size() == patch_label.size());
+    objects.reserve(statistical_params_.size());
+    obj_classes.reserve(statistical_params_.size());
+
+    for (auto idx : indexes)
+    {
+        obj_classes.push_back(patch_label[idx]);
+
+        const auto &statistic = statistical_params_[idx];
+        std::vector<float> statistic_vector;
+        statistic_vector.reserve(statistical_params_.size() * 4);
+
+        for (const auto &stat_value : statistic)
+        {
+            statistic_vector.push_back(stat_value.mean);
+            statistic_vector.push_back(stat_value.variance);
+            statistic_vector.push_back(stat_value.skewness);
+            statistic_vector.push_back(stat_value.kurtosis);
+        }
+        objects.push_back(statistic_vector);
+    }
+
+    if (selected_model_ == "Drzewo decyzyjne")
+    {
+        LOG_INFO("Running decision tree");
+        tree_.Train(objects, obj_classes, class_count);
+    }
+    else if (selected_model_ == "SVM")
+    {
+        LOG_INFO("Running SVM");
+
+        auto lambda = [](const AttributeList &a, const AttributeList &b) -> float { return KernelRbf(a, b, 0.001f); };
+        svm_.Train(objects, obj_classes, lambda);
+
+        svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
+    }
+    else
+    {
+        LOG_ERROR("Unspecified model!");
+        throw std::runtime_error("");
+    }
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    LOG_INFO("Training took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+
+    has_run_model_ = true;
+}
+
+
 std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entities_vec)
 {
     assert(!entities_vec.empty());
@@ -1238,6 +1547,19 @@ void MainWindow::ShowPopupsWindow()
         test_input_window_.Show();
         ImGui::EndPopup();
     }
+
+    if (ImGui::BeginPopup("Okno patch"))
+    {
+        patch_view_.Show();
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("Tabela prawdy"))
+    {
+        label_popup_window_.Show();
+        ImGui::EndPopup();
+    }
+
 }
 
 void MainWindow::UpdateThresholdImage()

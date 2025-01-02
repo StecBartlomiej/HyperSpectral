@@ -817,6 +817,34 @@ std::vector<StatisticalParameters> GetStatistics(const CpuMatrix& cpu_img)
     return result;
 }
 
+ImageLabel::ImageLabel(const std::filesystem::path &file_path, const ImageSize size): img_size_{size}
+{
+    assert(!file_path.empty());
+    assert(size.width > 0);
+    assert(size.height > 0);
+
+    std::ifstream file(file_path);
+    if (!file.is_open())
+    {
+        LOG_ERROR("ImageLabel: Could not open file {}", file_path.string());
+        throw std::runtime_error("Could not open file");
+    }
+
+    LOG_INFO("Loading {} labels", img_size_.width * img_size_.height);
+    image_label_.resize(img_size_.width * img_size_.height);
+    for (std::size_t i = 0; i < img_size_.width * img_size_.height; ++i)
+    {
+        file >> image_label_[i];
+    }
+}
+
+uint8_t ImageLabel::GetLabels(const PatchData patch_pos)
+{
+    const auto [x, y] = patch_pos;
+    const auto idx = y * img_size_.width + x;
+    return image_label_.at(idx);
+}
+
 CpuMatrix GetImportantEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_bands)
 {
     const auto [width, height, band] = eigenvectors.size;
@@ -828,4 +856,64 @@ CpuMatrix GetImportantEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_
 
     ImageSize size{width, static_cast<uint32_t>(k_bands), 1};
     return CpuMatrix{size, std::move(eigenvectors_data)};
+}
+
+float SumAllCuda(Matrix data)
+{
+    float *c_ptr = nullptr;
+    CudaAssert(cudaMalloc(&c_ptr, static_cast<size_t>(data.bands_height) * static_cast<size_t>(data.pixels_width) * sizeof(float)));
+    CudaAssert(cudaMemcpy(c_ptr, data.data, data.bands_height * data.pixels_width * sizeof(float), cudaMemcpyHostToDevice));
+
+    thrust::device_vector<float> c_vec(c_ptr, c_ptr + (data.bands_height * data.pixels_width));
+    return thrust::reduce(c_vec.begin(), c_vec.end());
+}
+
+std::size_t PatchSystem::GetPatchNumbers(ImageSize size)
+{
+    return size.width * size.height;
+}
+
+CpuMatrix PatchSystem::GetPatchImage(std::size_t patch_idx)
+{
+    static constexpr std::size_t margin = PatchData::S / 2;
+
+    const auto [size, img_data] = GetImageData(parent_img);
+
+    const std::size_t band_offset = size.width * size.height;
+    const std::size_t height_offset = size.width;
+
+    CpuMatrix result{
+        ImageSize{S, S, size.depth},
+        std::make_shared<float[]>(S * S * size.depth)
+    };
+
+    const auto [center_x, center_y] = GeneratePatch(size, patch_idx);
+
+    for (std::size_t band = 0; band < size.depth; band++)
+    {
+        for (int y = center_y - margin, iy=0; y < center_y + margin; ++y, ++iy)
+        {
+            for (int x = center_x - margin, ix=0; x < center_x + margin; ++x, ++ix)
+            {
+                float *value = result.data.get() + iy * S + ix + band * S * S;
+
+                if (x < 0 || x >= size.width || y < 0 || y >= size.height)
+                    *value = 0;
+                else
+                    *value = img_data[band * band_offset + y * height_offset + x];
+            }
+        }
+    }
+
+    return std::move(result);
+}
+
+PatchData PatchSystem::GeneratePatch(ImageSize size, std::size_t patch_idx)
+{
+    static constexpr std::size_t margin = PatchData::S / 2;
+
+    std::size_t dy = patch_idx / (size.width);
+    std::size_t dx = patch_idx % (size.width);
+
+    return PatchData{dx, dy} ;
 }

@@ -17,5 +17,6 @@ void RegisterComponents()
     coordinator.RegisterComponent<FilesystemPaths>();
     coordinator.RegisterComponent<ImageSize>();
     coordinator.RegisterComponent<EnviHeader>();
+    coordinator.RegisterComponent<PatchData>();
     LOG_INFO("Registered components");
 }

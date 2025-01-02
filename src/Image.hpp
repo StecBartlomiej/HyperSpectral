@@ -284,4 +284,34 @@ __global__ void CalculateFourMovements(Matrix img, Matrix result);
  */
 [[nodiscard]] std::vector<StatisticalParameters> GetStatistics(const CpuMatrix& cpu_img);
 
+
+class ImageLabel
+{
+public:
+    ImageLabel(const std::filesystem::path &file_path, const ImageSize size);
+
+    uint8_t GetLabels(PatchData patch_pos);
+
+private:
+    std::vector<uint8_t> image_label_{};
+    ImageSize img_size_{};
+};
+
+
+class PatchSystem
+{
+public:
+
+    [[nodiscard]] std::size_t GetPatchNumbers(ImageSize size);
+
+    [[nodiscard]] CpuMatrix GetPatchImage(std::size_t patch_idx);
+
+    [[nodiscard]] PatchData GeneratePatch(ImageSize size, std::size_t patch_idx);
+
+    Entity parent_img = 0;
+
+private:
+    static constexpr std::size_t S = PatchData::S;
+};
+
 #endif //HYPERSPECTRAL_IMAGE_HPP
