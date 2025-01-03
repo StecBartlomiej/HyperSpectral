@@ -14,6 +14,7 @@
 #include <map>
 #include <cereal/archives/json.hpp>
 #include <cereal/types/map.hpp>
+#include <cereal/types/vector.hpp>
 
 extern Coordinator coordinator;
 
@@ -34,11 +35,11 @@ std::vector<float> GetSortedAttributeList(const ObjectList &object_list, std::si
     std::vector<float> attribute_values{};
     attribute_values.reserve(object_list.size());
 
-    for (const auto obj_iter: object_list)
+    for (const auto& obj_iter: object_list)
     {
         attribute_values.push_back(obj_iter[attribute_idx]);
     }
-    std::sort(attribute_values.begin(), attribute_values.end());
+    std::ranges::sort(attribute_values);
 
     return attribute_values;
 }
@@ -61,7 +62,7 @@ void Tree::Train(const ObjectList &object_list, const std::vector<uint32_t> &obj
     root = new Node{};
 
     LOG_INFO("Training decision tree");
-    TrainNode(root, object_list, object_class);
+    TrainNode(root, object_list, object_class, 0);
     LOG_INFO("Ended training decision tree");
 }
 
@@ -102,14 +103,27 @@ uint32_t Tree::ClassifyObject(const Node *root, const AttributeList &attributes)
     return ClassifyObject(root->left, attributes);
 }
 
-void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vector<uint32_t> &object_classes)
+void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t depth)
 {
     const bool has_all_of = std::all_of(object_classes.begin(), object_classes.end(),
                 [first_class=object_classes.front()](const uint32_t class_idx){ return first_class == class_idx; });
     if (has_all_of)
     {
-        // LOG_INFO("All object have the same class, existing");
+        LOG_INFO("All object have the same class, exiting");
         root->attribute_idx = object_classes.front();
+        return;
+    }
+    if (depth >= max_depth_)
+    {
+        // Count class
+        std::vector<std::size_t> class_count(class_count_, 0);
+        for (auto obj_class : object_classes)
+        {
+            ++class_count[obj_class];
+        }
+        const auto iter = std::ranges::max_element(class_count);
+        root->attribute_idx = std::distance(class_count.begin(), iter);
+        LOG_INFO("Depth exceeded max_depth:{}, closing current branch, class count: [{}]", max_depth_, fmt::join(class_count, ", "));
         return;
     }
 
@@ -117,9 +131,11 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
     root->right = new Node{};
 
     TreeTest best_test{std::numeric_limits<float>::min(), 0, 0};
+    std::vector<std::size_t> D(class_count_, 0);
 
     for (std::size_t attr_idx = 0; attr_idx < attributes_count_; ++attr_idx)
     {
+
         auto attribute_values = GetSortedAttributeList(object_list, attr_idx);
 
         // Iterate over all possible thresholds
@@ -129,11 +145,12 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
             const float threshold = (attribute_values[threshold_idx - 1] + attribute_values[threshold_idx]) / 2.f;
 
             /// Split to d1, d2, D, calclate infromation gain
-            std::vector<std::size_t> d1(class_count_, 0);
-            std::vector<std::size_t> d2(class_count_, 0);
+            std::vector<std::size_t> d_yes(class_count_, 0);
+            std::vector<std::size_t> d_no(class_count_, 0);
             std::vector<std::size_t> D(class_count_, 0);
 
-            std::size_t count_d1 = 0, count_d2 = 0, count_D = object_list.size();
+            std::size_t count_d_yes = 0, count_d_no = 0;
+            const std::size_t count_D = object_classes.size();
 
             for (std::size_t obj_idx = 0; obj_idx < object_list.size(); ++obj_idx)
             {
@@ -144,47 +161,66 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
                 D[curr_class] += 1;
                 if (attr_list[attr_idx] <= threshold)
                 {
-                    d1[curr_class] += 1;
-                    count_d1 += 1;
+                    d_no[curr_class] += 1;
+                    count_d_no += 1;
                 }
                 else
                 {
-                    d2[curr_class] += 1;
-                    count_d2 += 1;
+                    d_yes[curr_class] += 1;
+                    count_d_yes += 1;
                 }
             }
 
             float info_D = 0;
-            float info_d1 = 0;
-            float info_d2 = 0;
+            float info_d_yes = 0;
+            float info_d_no = 0;
+
             for (std::size_t class_idx = 0; class_idx < class_count_; ++class_idx)
             {
                 const float p = static_cast<float>(D[class_idx]) / static_cast<float>(count_D);
                 assert(p <= 1);
                 info_D -= p != 0 ? p * log2(p) : 0;
 
-                const float p_d1 = static_cast<float>(d1[class_idx]) / static_cast<float>(count_d1);
-                info_d1 -= p_d1 != 0 ? p_d1 * log2(p_d1) : 0;
+                const float p_d_no = static_cast<float>(d_no[class_idx]) / static_cast<float>(count_d_no);
+                info_d_no -= p_d_no != 0 ? p_d_no * log2(p_d_no) : 0;
 
-                const float p_d2 = static_cast<float>(d2[class_idx]) / static_cast<float>(count_d2);
-                info_d2 -= p_d2 != 0 ? p_d2 * log2(p_d2) : 0;
+                const float p_d_yes = static_cast<float>(d_yes[class_idx]) / static_cast<float>(count_d_yes);
+                info_d_yes -= p_d_yes != 0 ? p_d_yes * log2(p_d_yes) : 0;
+
             }
+            float d1_d = static_cast<float>(count_d_yes) / static_cast<float>(count_D);
+            float d2_d = static_cast<float>(count_d_no) / static_cast<float>(count_D);
 
-            float gain_d1_d2 = ((count_d1 / count_D) * info_d1) + ((count_d2 / count_D) * info_d2);
+            float gain_d1_d2 = (d1_d * info_d_yes) + (d2_d * info_d_no);
             float info_gain = info_D - gain_d1_d2;
 
+            float split_info = -d1_d * log2(d1_d) - d2_d * log2(d2_d);
+            float gain_ration = info_gain / split_info;
 
-            if (best_test.information_gain < info_gain)
+            assert(gain_ration >= 0 && gain_ration <= 1);
+
+            if (best_test.information_gain < gain_ration)
             {
-                best_test.information_gain = info_gain;
+                best_test.information_gain = gain_ration;
                 best_test.threshold = threshold;
                 best_test.attribute_idx = attr_idx;
             }
         }
     }
 
-    // LOG_INFO("Best test for current node, attribute_idx:{}, threshold:{}, informatinon_gain:{}",
-        // best_test.attribute_idx, best_test.threshold, best_test.information_gain);
+    if (best_test.information_gain == std::numeric_limits<float>::min())
+    {
+        std::vector<std::size_t> class_count(class_count_, 0);
+        for (auto obj_class : object_classes)
+        {
+            ++class_count[obj_class];
+        }
+        const auto iter = std::ranges::max_element(class_count);
+        root->attribute_idx = std::distance(class_count.begin(), iter);
+        LOG_INFO("Cant split node, closing current branch, class count: [{}]", max_depth_, fmt::join(class_count, ", "));
+        return;
+    }
+
     root->attribute_idx = best_test.attribute_idx;
     root->threshold = best_test.threshold;
 
@@ -210,16 +246,19 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
         }
     }
 
+    LOG_INFO("Best test for current node:\n attribute_idx:{}, threshold:{}, gain_ratio:{}, split {}:{}",
+        best_test.attribute_idx, best_test.threshold, best_test.information_gain, left_obj_class.size(), right_obj_class.size());
+
     if (!left_obj.empty())
     {
         LOG_INFO("Running left node");
-        TrainNode(root->left, left_obj, left_obj_class);
+        TrainNode(root->left, left_obj, left_obj_class, depth + 1);
     }
 
     if (!right_obj.empty())
     {
         LOG_INFO("Running right node");
-        TrainNode(root->right, right_obj, right_obj_class);
+        TrainNode(root->right, right_obj, right_obj_class, depth + 1);
     }
 }
 
@@ -554,6 +593,72 @@ TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::ve
 
     return data;
 }
+
+PatchSplitData SplitData(const std::vector<PatchData> &object_list, const std::vector<uint8_t> &object_classes,
+    std::size_t class_count, float split_ratio)
+{
+       std::random_device rd;
+    std::mt19937 g(rd());
+
+    std::vector<uint32_t> grouped_count(class_count, 0);
+    std::vector<std::vector<std::size_t>> indexes{class_count};
+
+    for (std::size_t i = 0; i < object_classes.size(); ++i)
+    {
+        const auto class_id = object_classes[i];
+
+        indexes[class_id].push_back(i);
+
+        assert(class_id < class_count);
+        grouped_count[class_id] += 1;
+    }
+
+    for (std::size_t i = 0; i < class_count; ++i)
+    {
+        std::ranges::shuffle(indexes[i], g);
+    }
+
+    PatchSplitData data{};
+
+    std::vector<std::size_t> train_idx{};
+    for (const auto &curr_index : indexes)
+    {
+        const std::size_t end_idx =  std::round(curr_index.size() * split_ratio);
+
+        for (auto k = 0; k < end_idx; ++k)
+        {
+            const auto idx = curr_index[k];
+            train_idx.push_back(idx);
+        }
+    }
+    std::ranges::shuffle(train_idx, g);
+    for (auto idx : train_idx)
+    {
+        data.training_data.push_back(object_list[idx]);
+        data.training_classes.push_back(object_classes[idx]);
+    }
+
+    std::vector<std::size_t> test_idx{};
+    for (const auto& curr_index : indexes)
+    {
+        const auto end_idx =  std::round(curr_index.size() * split_ratio);
+
+        for (std::size_t k = end_idx; k < curr_index.size(); ++k)
+        {
+            const auto idx = curr_index[k];
+            test_idx.push_back(idx);
+        }
+    }
+    std::ranges::shuffle(test_idx, g);
+    for (auto idx : test_idx)
+    {
+        data.test_data.push_back(object_list[idx]);
+        data.test_classes.push_back(object_classes[idx]);
+    }
+
+    return data;
+}
+
 
 void SaveClassificationResult(const std::vector<Entity> &data, const std::vector<uint32_t> &data_classes, std::ostream &out)
 {

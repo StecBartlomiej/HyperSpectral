@@ -250,11 +250,11 @@ public:
     void Show(const Node *root);
 
 private:
-    void ShowNode(const Node *root, int input_id, const ImVec2 pos, int dy);
+    void ShowNode(const Node *root, int input_id, ImVec2 pos, int dy);
 
 private:
-    constexpr static int dx = 160;
-    constexpr static int start_dy = 140;
+    constexpr static int dx = 180;
+    constexpr static int start_dy = 400;
     constexpr static float scale_dy = 0.85;
     int unique_node_id_ = 0;
     int unique_attr_id_ = 0;
@@ -271,6 +271,17 @@ public:
 private:
     std::vector<float> alpha_{};
     float b_{};
+};
+
+struct Limits
+{
+    float min;
+    float max;
+};
+
+struct NormalizationData
+{
+    Limits mean, variance, skewness, kurtosis;
 };
 
 class MainWindow
@@ -291,6 +302,11 @@ private:
 
     void RunTrainDisjoint(Entity image);
 
+    [[nodiscard]] ClassificationData RunTrainPreprocessing(const std::vector<PatchData> &patch_positions,
+     const std::vector<uint8_t> &patch_label, Entity image);
+
+    [[nodiscard]] ObjectList RunPreprocessing(const std::vector<PatchData> &patch_positions, Entity image);
+
     [[nodiscard]] std::vector<CpuMatrix> RunThresholding(const std::vector<Entity> &entities_vec);
 
     void ShowPopupsWindow();
@@ -306,6 +322,8 @@ private:
     void ImagePreprocessing();
 
     void RunPca(const std::vector<Entity> &entities_vec);
+
+    [[nodiscard]] ObjectList GetNormalizedData(const std::vector<std::vector<StatisticalParameters>> &statistical_params);
 
 private:
     ImageViewWindow threshold_window_{};
@@ -326,6 +344,7 @@ private:
     std::vector<std::vector<StatisticalParameters>> statistical_params_{};
     ResultPCA result_pca_{};
     ImageSize img_size_{};
+    std::vector<NormalizationData> normalization_data_{};
     std::string_view selected_model_;
     std::string selected_img_name_{};
     int k_folds_ = 1;

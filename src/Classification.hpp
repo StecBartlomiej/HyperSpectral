@@ -1,9 +1,10 @@
 #ifndef CLASSIFICATION_HPP
 #define CLASSIFICATION_HPP
 
-#include <EntityComponentSystem.hpp>
+#include "EntityComponentSystem.hpp"
+#include "Components.hpp"
+
 #include <vector>
-#include <span>
 #include <string>
 #include <functional>
 
@@ -42,7 +43,7 @@ public:
 
     void Train(const ObjectList &object_list, const std::vector<uint32_t> &object_class, std::size_t class_count);
 
-    std::vector<uint32_t> Classify(const ObjectList &object_list);
+    [[nodiscard]] std::vector<uint32_t> Classify(const ObjectList &object_list);
 
     [[nodiscard]] const Node* GetRoot() const { return root; }
 
@@ -51,7 +52,7 @@ public:
 private:
     [[nodiscard]] uint32_t ClassifyObject(const Node *root, const AttributeList &attributes);
 
-    void TrainNode(Node *node, const ObjectList &object_list, const std::vector<uint32_t> &object_classes);
+    void TrainNode(Node *node, const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t depth);
 
     void PrintNode(const std::string &prefix, const Node *node, bool isLeft);
 
@@ -59,6 +60,7 @@ private:
     Node *root{};
     std::size_t attributes_count_ = 0;
     std::size_t class_count_ = 0;
+    std::size_t max_depth_ = 7;
 };
 
 void FreeNodes(Node *node);
@@ -95,12 +97,31 @@ struct TrainingTestData
     std::vector<uint32_t> test_classes;
 };
 
+struct ClassificationData
+{
+    ObjectList objects;
+    std::vector<uint32_t> classes;
+};
+
+struct PatchSplitData
+{
+    std::vector<PatchData> training_data;
+    std::vector<uint8_t> training_classes;
+    std::vector<PatchData> test_data;
+    std::vector<uint8_t> test_classes;
+};
+
+
+
+
 
 [[nodiscard]] auto KFoldGeneration(const std::vector<uint32_t> &object_class, uint32_t class_count, uint32_t k_groups=10) -> std::vector<std::vector<std::size_t>>;
 
 [[nodsicard]] TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_class, std::size_t test_fold_idx);
 
 [[nodsicard]] TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count, float split_ratio);
+
+[[nodsicard]] PatchSplitData SplitData(const std::vector<PatchData> &object_list, const std::vector<uint8_t> &object_classes, std::size_t class_count, float split_ratio);
 
 void SaveClassificationResult(const std::vector<Entity> &data, const std::vector<uint32_t> &data_classes, std::ostream &out);
 

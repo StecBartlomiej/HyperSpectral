@@ -11,11 +11,12 @@
 #include <cassert>
 #include <map>
 #include <chrono>
+#include <execution>
 #include <fstream>
 #include <numeric>
 #include <ranges>
 #include <random>
-
+#include <fstream>
 
 extern Coordinator coordinator;
 
@@ -713,7 +714,8 @@ void TreeViewWindow::Show(const Node *root)
     ImNodes::EndNodeTitleBar();
 
 
-    ImGui::Text(GetAttributeName(root->attribute_idx));
+    ImGui::Text("PC %llu", root->attribute_idx / 4u);
+    ImGui::Text(GetAttributeName(root->attribute_idx % 4));
     ImGui::Text("Próg = %f", root->threshold);
 
     // Right ?
@@ -772,7 +774,8 @@ void TreeViewWindow::ShowNode(const Node *root, const int input_id, const ImVec2
         ImGui::TextUnformatted("Węzeł");
         ImNodes::EndNodeTitleBar();
 
-        ImGui::Text(GetAttributeName(root->attribute_idx));
+        ImGui::Text("PC %llu", root->attribute_idx / 4u);
+        ImGui::Text(GetAttributeName(root->attribute_idx % 4));
         ImGui::Text("Próg = %f", root->threshold);
     }
 
@@ -984,7 +987,7 @@ void MainWindow::Show()
 
         ImGui::SeparatorText("Wizualizacja model");
 
-        ImGui::BeginChild("Modele uczenia", ImVec2(ImGui::GetContentRegionAvail().x, 600));
+        ImGui::BeginChild("Modele uczenia", ImVec2(ImGui::GetContentRegionAvail().x, 900));
         if (ImGui::BeginTabBar("Modele uczenia##uczenie tab"))
         {
             if (ImGui::BeginTabItem("Drzewo decyzyjne"))
@@ -1216,9 +1219,6 @@ void MainWindow::RunTrainDisjoint(Entity image)
 
     const auto size = coordinator.GetComponent<ImageSize>(image);
 
-    PatchSystem patch_system{};
-    patch_system.parent_img = image;
-
     const auto label_file_path = label_popup_window_.GetLabelFile();
     if (label_file_path.empty())
     {
@@ -1266,28 +1266,140 @@ void MainWindow::RunTrainDisjoint(Entity image)
     assert(!patch_positions.empty());
     assert(patch_positions.size() == patch_label.size());
 
-    std::random_device rd;
-    std::mt19937 g(rd());
+    {
+        std::random_device rd;
+        std::mt19937 g(rd());
 
-    std::vector<std::size_t> indexes(patch_positions.size(), 0);
-    std::iota(indexes.begin(), indexes.end(), 0);
-    std::ranges::shuffle(indexes, g);
+        std::vector<std::size_t> indexes(patch_positions.size(), 0);
+        std::iota(indexes.begin(), indexes.end(), 0);
+        std::ranges::shuffle(indexes, g);
+
+        std::vector<PatchData> tmp_patch_positions;
+        std::vector<uint8_t> tmp_patch_labels;
+
+        tmp_patch_positions.reserve(patch_positions.size());
+        tmp_patch_labels.reserve(patch_label.size());
+
+        std::ranges::transform(indexes, std::back_inserter(tmp_patch_positions),
+                               [&](std::size_t index) {
+                                   return patch_positions[index];
+                               });
+        std::ranges::transform(indexes, std::back_inserter(tmp_patch_labels),
+                               [&](std::size_t index) {
+                                   return patch_label[index];
+                               });
+
+        patch_positions = tmp_patch_positions;
+        patch_label = tmp_patch_labels;
+    }
+
+    /// SPLIT DATA -> TRAIN, VALIDATION, TEST
+    LOG_INFO("Splitting training-test data 70-30");
+    const auto class_count = label_popup_window_.GetClassCount();
+    const auto [training_patch, training_labels, test_patch, test_labels] = SplitData(
+        patch_positions, patch_label, class_count, 0.1);
+
+    LOG_INFO("Running preprocessing");
+    auto [objects, obj_classes] = RunTrainPreprocessing(training_patch, training_labels, image);
+    LOG_INFO("Ended preprocessing");
+
+    std::ofstream train_file("Training_values.json");
+    cereal::JSONOutputArchive archive(train_file);
+
+    archive(objects);
+    archive(obj_classes);
+
+
+    LOG_INFO("Training classification");
+    if (selected_model_ == "Drzewo decyzyjne")
+    {
+        LOG_INFO("Running decision tree");
+        // Add k-fold validation
+
+        tree_.Train(objects, obj_classes, class_count);
+        // Add prunning
+
+
+        // TRAINING DATA
+        const auto class_result = tree_.Classify(objects);
+        const auto error_train = std::ranges::count_if(obj_classes,
+                                                 [&, i=0](uint32_t c) mutable { return c != obj_classes[i++]; });
+        const auto relative_error = (static_cast<float>(error_train) / static_cast<float>(obj_classes.size())) * 100.f;
+        LOG_INFO("Classification result of training data errors={}, relative={}%", error_train, relative_error);
+
+
+        // TEST DATA
+        const auto test_data = RunPreprocessing(test_patch, image);
+        LOG_INFO("Running classification");
+
+        const auto class_result_2 = tree_.Classify(test_data);
+        const auto error_test = std::ranges::count_if(test_labels,
+                                                 [&, i=0](uint32_t c) mutable { return c != class_result_2[i++]; });
+        const auto relative_error_test = (static_cast<float>(error_test) / static_cast<float>(test_labels.size())) * 100.f;
+        LOG_INFO("Classification result: errors={}, relative={}%", error_test, relative_error_test);
+    }
+    else if (selected_model_ == "SVM")
+    {
+        LOG_INFO("Running SVM");
+
+        auto lambda = [](const AttributeList &a, const AttributeList &b) -> float { return KernelRbf(a, b, 0.001f); };
+        svm_.Train(objects, obj_classes, lambda);
+
+        svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
+
+
+        const auto test_data = RunPreprocessing(test_patch, image);
+        LOG_INFO("Running classification");
+        const auto class_result = svm_.Classify(test_data);
+        LOG_INFO("Ended classification");
+
+        const auto error = std::ranges::count_if(test_labels,
+                                                 [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+
+        LOG_INFO("Classification result SVM: errors={}, relative={}%", error, error / static_cast<float>(test_labels.size()));
+    }
+    else
+    {
+        LOG_ERROR("Unspecified model!");
+        throw std::runtime_error("");
+    }
+
+    const auto end = std::chrono::high_resolution_clock::now();
+    LOG_INFO("Training took {} s", std::chrono::duration_cast<std::chrono::seconds>(end - start).count());
+
+    has_run_model_ = true;
+}
+
+ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchData> &patch_positions,
+     const std::vector<uint8_t> &patch_label, Entity image)
+{
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    const auto size = coordinator.GetComponent<ImageSize>(image);
+    const ImageSize patch_size = add_neighbour_bands_ ?
+        ImageSize{PatchData::S - 2, PatchData::S - 2, size.depth * 9} : ImageSize{PatchData::S, PatchData::S, size.depth};
+    const auto threshold_setting = threshold_popup_window_.GetThresholdSettings().value_or(ThresholdSetting{0.f, 0});
+
+    PatchSystem patch_system{};
+    patch_system.parent_img = image;
 
     LOG_INFO("Run PCA on patches");
     const auto opt_pca_settings = pca_popup_window_.GetPcaSettings();
     if (!opt_pca_settings.has_value())
     {
         LOG_WARN("RunTrain: PCA settings not set");
-        return;
+        throw std::runtime_error("PCA settings not set");
     }
     const std::size_t k_bands = opt_pca_settings.value().selected_bands;
 
+    if  (add_neighbour_bands_)
+        LOG_INFO("Adding neighbour bands");
+
     /// PCA
     auto LoadData = [&](std::size_t i) -> CpuMatrix {
-        assert(i < indexes.size());
+        assert(i < patch_positions.size());
 
-        const auto idx = indexes[i];
-        const auto [x, y] = patch_positions[idx];
+        const auto [x, y] = patch_positions[i];
         const auto patch_idx = y * size.width + x;
 
         CpuMatrix patch = patch_system.GetPatchImage(patch_idx);
@@ -1300,7 +1412,7 @@ void MainWindow::RunTrainDisjoint(Entity image)
         return GetObjectFromMask(patch.GetMatrix(), patch_mask.GetMatrix());
     };
 
-    result_pca_ = PCA(LoadData,  img_size_.depth, img_size_.height * img_size_.width, indexes.size());
+    result_pca_ = PCA(LoadData,  patch_size.depth, patch_size.height * patch_size.width, patch_positions.size());
     result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
 
     const auto max_i = result_pca_.eigenvalues.size.height;
@@ -1311,11 +1423,12 @@ void MainWindow::RunTrainDisjoint(Entity image)
     }
     LOG_INFO("PCA Result: {} highest eigenvalues: {}", k_bands, oss.str());
     has_run_pca_ = true;
+
     UpdatePcaImage();
 
     LOG_INFO("Run projection of PCA on patches");
     auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        img_size_.height * img_size_.width, indexes.size());
+        patch_size.height * patch_size.width, patch_positions.size());
 
     LOG_INFO("Calculate statistiacal params on patches");
     statistical_params_.clear();
@@ -1325,58 +1438,94 @@ void MainWindow::RunTrainDisjoint(Entity image)
         statistical_params_.push_back(statistic_vector);
     }
 
-    /// CLASSIFICATION, choose SVM or TREE
-    LOG_INFO("Run classification");
-    const auto class_count = label_popup_window_.GetClassCount();
-    ObjectList objects;
-    std::vector<uint32_t> obj_classes;
+    ObjectList objects = GetNormalizedData(statistical_params_);
+    std::vector<uint32_t> obj_class;
+    objects.resize(patch_label.size());
+    std::ranges::copy(patch_label, std::back_inserter(obj_class));
 
-    assert(statistical_params_.size() == patch_label.size());
-    objects.reserve(statistical_params_.size());
-    obj_classes.reserve(statistical_params_.size());
+    const auto end = std::chrono::high_resolution_clock::now();
+    LOG_INFO("Training preprocessing took {} s", std::chrono::duration_cast<std::chrono::seconds>(end - start).count());
 
-    for (auto idx : indexes)
+    return {std::move(objects), std::move(obj_class)};
+}
+
+ObjectList MainWindow::RunPreprocessing(const std::vector<PatchData> &patch_positions, Entity image)
+{
+    const auto start = std::chrono::high_resolution_clock::now();
+
+    const auto size = coordinator.GetComponent<ImageSize>(image);
+    const auto threshold_setting = threshold_popup_window_.GetThresholdSettings().value_or(ThresholdSetting{0.f, 0});
+    const std::size_t k_bands = pca_popup_window_.GetPcaSettings().value().selected_bands;
+
+    const ImageSize patch_size = add_neighbour_bands_ ?
+        ImageSize{PatchData::S - 2, PatchData::S - 2, size.depth * 9} : ImageSize{PatchData::S, PatchData::S, size.depth};
+
+    PatchSystem patch_system{};
+    patch_system.parent_img = image;
+
+    auto LoadData = [&](std::size_t i) -> CpuMatrix {
+        assert(i < patch_positions.size());
+
+        const auto [x, y] = patch_positions[i];
+        const auto patch_idx = y * size.width + x;
+
+        CpuMatrix patch = patch_system.GetPatchImage(patch_idx);
+
+        if (add_neighbour_bands_)
+            patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
+
+        const auto patch_mask = RunImageThreshold(patch, threshold_setting);
+
+        return GetObjectFromMask(patch.GetMatrix(), patch_mask.GetMatrix());
+    };
+   LOG_INFO("Run projection of PCA on patches");
+    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
+        patch_size.height * patch_size.width, patch_positions.size());
+
+    LOG_INFO("Calculate statistical params on patches");
+    statistical_params_.clear();
+    for (const auto & pca_object : patches)
     {
-        obj_classes.push_back(patch_label[idx]);
+        std::vector<StatisticalParameters> statistic_vector = GetStatistics(pca_object);
+        statistical_params_.push_back(statistic_vector);
+    }
 
-        const auto &statistic = statistical_params_[idx];
+    ObjectList objects;
+    objects.reserve(statistical_params_.size());
+
+    for (const auto &statistic : statistical_params_)
+    {
         std::vector<float> statistic_vector;
         statistic_vector.reserve(statistical_params_.size() * 4);
 
-        for (const auto &stat_value : statistic)
+        for (const auto idx : std::views::iota(0u, statistic.size()))
         {
-            statistic_vector.push_back(stat_value.mean);
-            statistic_vector.push_back(stat_value.variance);
-            statistic_vector.push_back(stat_value.skewness);
-            statistic_vector.push_back(stat_value.kurtosis);
+            const auto &stat_value = statistic[idx];
+
+            const auto &[mean, var, skew, kurt] = normalization_data_[idx];
+
+            const float diff_mean = mean.max - mean.min;
+            const float diff_var =  var.max - var.min;
+            const float diff_skew = skew.max - skew.min;
+            const float diff_kurt = kurt.max - kurt.min;
+
+            const float n_mean = (stat_value.mean - mean.min) / diff_mean;
+            const float n_variance = (stat_value.variance - var.min) / diff_var;
+            const float n_skew = (stat_value.skewness - skew.min) / diff_skew;
+            const float n_kurt = (stat_value.kurtosis - kurt.min) / diff_kurt;
+
+            statistic_vector.push_back(n_mean);
+            statistic_vector.push_back(n_variance);
+            statistic_vector.push_back(n_skew);
+            statistic_vector.push_back(n_kurt);
         }
         objects.push_back(statistic_vector);
     }
 
-    if (selected_model_ == "Drzewo decyzyjne")
-    {
-        LOG_INFO("Running decision tree");
-        tree_.Train(objects, obj_classes, class_count);
-    }
-    else if (selected_model_ == "SVM")
-    {
-        LOG_INFO("Running SVM");
-
-        auto lambda = [](const AttributeList &a, const AttributeList &b) -> float { return KernelRbf(a, b, 0.001f); };
-        svm_.Train(objects, obj_classes, lambda);
-
-        svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
-    }
-    else
-    {
-        LOG_ERROR("Unspecified model!");
-        throw std::runtime_error("");
-    }
-
     const auto end = std::chrono::high_resolution_clock::now();
-    LOG_INFO("Training took {} ms", std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count());
+    LOG_INFO("Preprocessing took {} s", std::chrono::duration_cast<std::chrono::seconds>(end - start).count());
 
-    has_run_model_ = true;
+    return std::move(objects);
 }
 
 
@@ -1620,17 +1769,23 @@ void MainWindow::UpdatePcaImage()
     {
         return;
     }
+    LOG_INFO("Updating Pca image...");
     const std::size_t k_bands = opt_pca_settings.value().selected_bands;
     auto cpu_img = GetImageData(opt_entity.value());
 
     if (add_neighbour_bands_)
     {
-        cpu_img = AddNeighboursBand(cpu_img.GetMatrix(), cpu_img.size);
+        try
+        {
+            cpu_img = AddNeighboursBand(cpu_img.GetMatrix(), cpu_img.size);
+        }
+        catch (const std::bad_alloc& err)
+        {
+            LOG_INFO("Showing PCA image caught out-of-memory expectation unable to process full image, {}", err.what());
+            return;
+        }
     }
     auto LoadDataImg = [=](std::size_t i) -> CpuMatrix { return cpu_img; };
-
-    LOG_INFO("UpdatePcaImage, loading enitty id={}, pca bands={}", opt_entity.value(), k_bands);
-
 
     pca_transformed_images_ = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadDataImg, cpu_img.size.height * cpu_img.size.width, 1);
 
@@ -1792,4 +1947,108 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
     LOG_INFO("Ended thresholding");
     img_size_ = max_img_size;
     return std::move(cpu_img_objects);
+}
+
+ObjectList MainWindow::GetNormalizedData(const std::vector<std::vector<StatisticalParameters>> &statistical_params)
+{
+    assert(!statistical_params.empty());
+
+    ObjectList objects;
+    objects.reserve(statistical_params.size());
+
+    // NORMALIZATION FOR EACH PC
+    static constexpr float max_float = std::numeric_limits<float>::max();
+    static constexpr float min_float = std::numeric_limits<float>::min();
+
+    const std::size_t bands_size = statistical_params.front().size();
+
+    normalization_data_.reserve(bands_size);
+    for (std::size_t i = 0; i < bands_size; ++i)
+    {
+        NormalizationData normalization_data{
+            .mean     = {.min = max_float, .max = min_float},
+            .variance = {.min = max_float, .max = min_float},
+            .skewness = {.min = max_float, .max = min_float},
+            .kurtosis = {.min = max_float, .max = min_float},
+        };
+        normalization_data_.push_back(normalization_data);
+    }
+
+    for (const auto &statistic : statistical_params)
+    {
+        for (const auto idx : std::views::iota(0u, statistic.size()))
+        {
+            const auto &stat_value = statistic[idx];
+
+            auto  &[mean, var, skew, kurt] = normalization_data_[idx];
+
+            if (stat_value.mean > mean.max)
+            {
+                mean.max = stat_value.mean;
+            }
+            if (stat_value.mean < mean.min)
+            {
+                mean.min = stat_value.mean;
+            }
+
+            if (stat_value.variance > var.max)
+            {
+                var.max = stat_value.variance;
+            }
+            if (stat_value.variance < var.min)
+            {
+                var.min = stat_value.variance;
+            }
+
+            if (stat_value.skewness > skew.max)
+            {
+                skew.max = stat_value.skewness;
+            }
+            if (stat_value.skewness < skew.min)
+            {
+                skew.min = stat_value.skewness;
+            }
+
+            if (stat_value.kurtosis > kurt.max)
+            {
+                kurt.max = stat_value.kurtosis;
+            }
+            if (stat_value.kurtosis < kurt.min)
+            {
+                kurt.min = stat_value.kurtosis;
+            }
+        }
+    }
+
+    for (const auto &statistic : statistical_params)
+    {
+        std::vector<float> statistic_vector;
+        statistic_vector.reserve(statistic.size() * 4);
+
+
+        for (const auto idx : std::views::iota(0u, statistic.size()))
+        {
+            const auto &stat_value = statistic[idx];
+
+            const auto &[mean, var, skew, kurt] = normalization_data_[idx];
+
+            const float diff_mean = mean.max - mean.min;
+            const float diff_var =  var.max - var.min;
+            const float diff_skew = skew.max - skew.min;
+            const float diff_kurt = kurt.max - kurt.min;
+
+            const float n_mean = (stat_value.mean - mean.min) / diff_mean;
+            const float n_variance = (stat_value.variance - var.min) / diff_var;
+            const float n_skew = (stat_value.skewness - skew.min) / diff_skew;
+            const float n_kurt = (stat_value.kurtosis - kurt.min) / diff_kurt;
+
+            statistic_vector.push_back(n_mean);
+            statistic_vector.push_back(n_variance);
+            statistic_vector.push_back(n_skew);
+            statistic_vector.push_back(n_kurt);
+        }
+        objects.push_back(statistic_vector);
+    }
+
+    return objects;
 }

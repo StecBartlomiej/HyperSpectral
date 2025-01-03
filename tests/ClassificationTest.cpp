@@ -5,13 +5,12 @@
 TEST_CASE("Small data test", "[DecisionTree]")
 {
     ObjectList data = {
-       { 3,     1,     5,     5,    -1},
-       { 4,    -4,     5,     0,     5},
-       {-4,    -2,    -4,     3,     3},
-       { 5,     1,     5,    -4,     5}
+        {0, 2},
+        {1, 3},
+        {2, 4},
     };
 
-    std::vector<uint32_t> obj_class = {1, 0, 1, 0};
+    std::vector<uint32_t> obj_class = {1, 1, 0};
 
     Tree tree{};
 
