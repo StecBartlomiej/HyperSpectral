@@ -253,9 +253,12 @@ private:
     void ShowNode(const Node *root, int input_id, ImVec2 pos, int dy);
 
 private:
-    constexpr static int dx = 180;
-    constexpr static int start_dy = 400;
-    constexpr static float scale_dy = 0.85;
+    int dx = 180;
+    int leaf_dx = 100;
+    int start_dy = 400;
+    int leaf_dy = 80;
+    float scale_dy = 0.75;
+    float start_scale_dy = 1.5;
     int unique_node_id_ = 0;
     int unique_attr_id_ = 0;
     int unique_link_id_ = 0;
@@ -347,6 +350,7 @@ private:
     std::vector<NormalizationData> normalization_data_{};
     std::string_view selected_model_;
     std::string selected_img_name_{};
+    float disjoint_data_split_ = 0.2f;
     int k_folds_ = 1;
     int approach_type_ = 0;
     bool has_run_pca_ = false;
@@ -355,6 +359,9 @@ private:
     bool has_disjoint_sampling_ = false;
 };
 
+
+void SaveGroundTruth(const std::vector<PatchData> &patches, const std::vector<uint32_t> &class_result, ImageSize size,
+    std::string_view file_name);
 
 
 [[nodiscard]] const char* GetAttributeName(std::size_t idx);

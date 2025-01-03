@@ -16,6 +16,7 @@
 #include <numeric>
 #include <ranges>
 #include <random>
+#include <utility>
 #include <fstream>
 
 extern Coordinator coordinator;
@@ -704,6 +705,20 @@ void LabelPopupWindow::Show()
 
 void TreeViewWindow::Show(const Node *root)
 {
+    ImGui::PushItemWidth(80);
+    ImGui::InputInt("dx", &dx);
+    ImGui::SameLine();
+    ImGui::InputInt("start dy", &start_dy);
+
+    ImGui::InputInt("leaf dx", &leaf_dx);
+    ImGui::SameLine();
+    ImGui::InputInt("leaf dy", &leaf_dy);
+
+    ImGui::DragFloat("y scale", &scale_dy, 0.01, 0, 1);
+    ImGui::SameLine();
+    ImGui::DragFloat("start y_scale", &start_scale_dy, 0.01, 0, 3);
+    ImGui::PopItemWidth();
+
     ImNodes::BeginNodeEditor();
 
     const int curr_node_id = unique_node_id_++;
@@ -737,12 +752,12 @@ void TreeViewWindow::Show(const Node *root)
     // CALL
     if (root->right)
     {
-        const ImVec2 new_pos = {root_pos.x + dx, root_pos.y - start_dy};
+        const ImVec2 new_pos = {root_pos.x + dx, root_pos.y - start_dy * start_scale_dy};
         ShowNode(root->right, right_node_output, new_pos, start_dy * scale_dy);
     }
     if (root->left)
     {
-        const ImVec2 new_pos = {root_pos.x + dx, root_pos.y + start_dy};
+        const ImVec2 new_pos = {root_pos.x + dx, root_pos.y + start_dy * start_scale_dy};
         ShowNode(root->left, left_node_output, new_pos, start_dy * scale_dy);
     }
 
@@ -801,12 +816,13 @@ void TreeViewWindow::ShowNode(const Node *root, const int input_id, const ImVec2
 
     if (root->right)
     {
-        const ImVec2 new_pos = {pos.x + dx, pos.y - dy};
+        const ImVec2 new_pos = IsLeaf(root->right) ? ImVec2{pos.x + leaf_dx, pos.y - leaf_dy}: ImVec2{pos.x + dx, pos.y - dy};
+
         ShowNode(root->right, right_node_output, new_pos, dy * scale_dy);
     }
     if (root->left)
     {
-        const ImVec2 new_pos = {pos.x + dx, pos.y + dy};
+        const ImVec2 new_pos = IsLeaf(root->left) ? ImVec2{pos.x + leaf_dx, pos.y + leaf_dy}: ImVec2{pos.x + dx, pos.y + dy};
         ShowNode(root->left, left_node_output, new_pos, dy * scale_dy);
     }
 }
@@ -1213,6 +1229,25 @@ void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
     has_run_model_ = true;
 }
 
+void SaveGroundTruth(const std::vector<PatchData> &patches, const std::vector<uint32_t> &class_result, ImageSize size,
+    std::string_view file_name)
+{
+    std::ofstream file(file_name.data(), std::ios::binary);
+    std::vector<uint8_t> image_data(size.width * size.height, 0u);
+
+    for (std::size_t i = 0; i < patches.size(); ++i)
+    {
+        const auto [center_x, center_y] = patches[i];
+        const uint8_t curr_class = class_result[i] + 1;
+
+        image_data[center_y * size.width + center_x] = curr_class;
+    }
+    for (const uint8_t x: image_data)
+    {
+        file << x;
+    }
+}
+
 void MainWindow::RunTrainDisjoint(Entity image)
 {
     const auto start = std::chrono::high_resolution_clock::now();
@@ -1248,6 +1283,8 @@ void MainWindow::RunTrainDisjoint(Entity image)
     LOG_INFO("Get patch positions");
     std::vector<PatchData> patch_positions;
     std::vector<uint8_t> patch_label;
+    std::vector<PatchData> unknown_patch_positions;
+
     for (std::size_t y = 0; y < mask.size.height; ++y)
     {
         for (std::size_t x = 0; x < mask.size.width; ++x)
@@ -1257,7 +1294,10 @@ void MainWindow::RunTrainDisjoint(Entity image)
 
             const uint8_t label = img_label.GetLabels({x, y});
             if (label == 0)
+            {
+                unknown_patch_positions.emplace_back(x, y);
                 continue;
+            }
 
             patch_positions.emplace_back(x, y);
             patch_label.push_back(label - 1);
@@ -1297,17 +1337,11 @@ void MainWindow::RunTrainDisjoint(Entity image)
     LOG_INFO("Splitting training-test data 70-30");
     const auto class_count = label_popup_window_.GetClassCount();
     const auto [training_patch, training_labels, test_patch, test_labels] = SplitData(
-        patch_positions, patch_label, class_count, 0.1);
+        patch_positions, patch_label, class_count, disjoint_data_split_);
 
     LOG_INFO("Running preprocessing");
     auto [objects, obj_classes] = RunTrainPreprocessing(training_patch, training_labels, image);
     LOG_INFO("Ended preprocessing");
-
-    std::ofstream train_file("Training_values.json");
-    cereal::JSONOutputArchive archive(train_file);
-
-    archive(objects);
-    archive(obj_classes);
 
 
     LOG_INFO("Training classification");
@@ -1321,22 +1355,38 @@ void MainWindow::RunTrainDisjoint(Entity image)
 
 
         // TRAINING DATA
-        const auto class_result = tree_.Classify(objects);
-        const auto error_train = std::ranges::count_if(obj_classes,
-                                                 [&, i=0](uint32_t c) mutable { return c != obj_classes[i++]; });
-        const auto relative_error = (static_cast<float>(error_train) / static_cast<float>(obj_classes.size())) * 100.f;
-        LOG_INFO("Classification result of training data errors={}, relative={}%", error_train, relative_error);
+        {
+            const auto class_result = tree_.Classify(objects);
+            const auto error_train = std::ranges::count_if(obj_classes,
+                                                     [&, i=0](uint32_t c) mutable { return c != obj_classes[i++]; });
+            const auto relative_error = (static_cast<float>(error_train) / static_cast<float>(obj_classes.size())) * 100.f;
+            LOG_INFO("Classification result of training data errors={}, relative={}%", error_train, relative_error);
 
+            SaveGroundTruth(training_patch, class_result, size, "training_values.dat");
+        }
 
         // TEST DATA
-        const auto test_data = RunPreprocessing(test_patch, image);
-        LOG_INFO("Running classification");
+        {
+            const auto test_data = RunPreprocessing(test_patch, image);
 
-        const auto class_result_2 = tree_.Classify(test_data);
-        const auto error_test = std::ranges::count_if(test_labels,
-                                                 [&, i=0](uint32_t c) mutable { return c != class_result_2[i++]; });
-        const auto relative_error_test = (static_cast<float>(error_test) / static_cast<float>(test_labels.size())) * 100.f;
-        LOG_INFO("Classification result: errors={}, relative={}%", error_test, relative_error_test);
+            LOG_INFO("Running classification");
+
+            const auto class_result_2 = tree_.Classify(test_data);
+            const auto error_test = std::ranges::count_if(test_labels,
+                                                     [&, i=0](uint32_t c) mutable { return c != class_result_2[i++]; });
+            const auto relative_error_test = (static_cast<float>(error_test) / static_cast<float>(test_labels.size())) * 100.f;
+            LOG_INFO("Classification result: errors={}, relative={}%", error_test, relative_error_test);
+
+            SaveGroundTruth(test_patch, class_result_2, size, "test_values.dat");
+        }
+
+        // Unknown data
+        {
+            const auto unknown_data = RunPreprocessing(unknown_patch_positions, image);
+            const auto unknown_classes = tree_.Classify(unknown_data);
+
+            SaveGroundTruth(unknown_patch_positions, unknown_classes, size, "unknown_values.dat");
+        }
     }
     else if (selected_model_ == "SVM")
     {
@@ -1424,7 +1474,7 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchData
     LOG_INFO("PCA Result: {} highest eigenvalues: {}", k_bands, oss.str());
     has_run_pca_ = true;
 
-    UpdatePcaImage();
+    // UpdatePcaImage();
 
     LOG_INFO("Run projection of PCA on patches");
     auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
@@ -1687,7 +1737,6 @@ void MainWindow::ShowPixelApproach()
 
     ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
 
-
     ImGui::Spacing();
 
     if (ImGui::Button(reinterpret_cast<const char*>(u8"Zobacz próbki")))
@@ -1703,6 +1752,9 @@ void MainWindow::ShowPixelApproach()
             ImGui::OpenPopup("Okno patch");
         }
     }
+    ImGui::Spacing();
+
+    ImGui::DragFloat("Podział danych", &disjoint_data_split_, 0.1, 0, 1);
     ImGui::Spacing();
 }
 
