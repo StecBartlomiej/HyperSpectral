@@ -342,7 +342,8 @@ private:
     ImagePatchView patch_view_{};
     LabelPopupWindow label_popup_window_{};
     Tree tree_{};
-    SVM svm_{};
+    EnsembleSvm ensemble_svm_{};
+    ParametersSVM params_svm_{.max_iter = 100000, .C = 100.f, .tau = 1e-3, .gamma=0.1};
     std::vector<CpuMatrix> pca_transformed_images_{};
     std::vector<std::vector<StatisticalParameters>> statistical_params_{};
     ResultPCA result_pca_{};
@@ -351,6 +352,7 @@ private:
     std::string_view selected_model_;
     std::string selected_img_name_{};
     float disjoint_data_split_ = 0.2f;
+    float disjoint_validation_split_ = 0.5f;
     int k_folds_ = 1;
     int approach_type_ = 0;
     bool has_run_pca_ = false;

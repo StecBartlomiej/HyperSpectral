@@ -960,6 +960,22 @@ void MainWindow::Show()
         ImGui::EndCombo();
     }
 
+    if (selected_model_ == "SVM")
+    {
+        ImGui::PushItemWidth(120);
+
+        ImGui::DragFloat("C", &params_svm_.C, 1, 1, 1e6, "%.2f");
+        ImGui::InputFloat("tau", &params_svm_.tau, 0, 0, "%.5f");
+        ImGui::InputFloat("Gamma", &params_svm_.gamma, 0, 0, "%.5f");
+        static int max_iter = 1e5;
+        if (ImGui::InputInt("Maks iteracji", &max_iter))
+        {
+            params_svm_.max_iter = static_cast<std::size_t>(max_iter);
+        }
+
+        ImGui::PopItemWidth();
+    }
+
     ImGui::Spacing();
     if (ImGui::Button("Uruchom uczenie"))
     {
@@ -1212,10 +1228,10 @@ void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
     {
         LOG_INFO("Running SVM");
 
-        auto lambda = [](const AttributeList &a, const AttributeList &b) -> float { return KernelRbf(a, b, 0.001f); };
-        svm_.Train(objects, obj_classes, lambda);
+        ensemble_svm_.SetParameterSvm(class_count, params_svm_);
+        ensemble_svm_.Train(objects, obj_classes);
 
-        svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
+        // svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
     }
     else
     {
@@ -1334,10 +1350,15 @@ void MainWindow::RunTrainDisjoint(Entity image)
     }
 
     /// SPLIT DATA -> TRAIN, VALIDATION, TEST
-    LOG_INFO("Splitting training-test data 70-30");
     const auto class_count = label_popup_window_.GetClassCount();
-    const auto [training_patch, training_labels, test_patch, test_labels] = SplitData(
+
+    LOG_INFO("Splitting learning-test data {}", disjoint_data_split_);
+    const auto [train_val_patch, train_val_labels, test_patch, test_labels] = SplitData(
         patch_positions, patch_label, class_count, disjoint_data_split_);
+
+    LOG_INFO("Splitting training-validation data {}", disjoint_validation_split_);
+    const auto [training_patch, training_labels, validation_patch, validation_labels] = SplitData(
+        train_val_patch, train_val_labels, class_count, disjoint_validation_split_);
 
     LOG_INFO("Running preprocessing");
     auto [objects, obj_classes] = RunTrainPreprocessing(training_patch, training_labels, image);
@@ -1358,7 +1379,7 @@ void MainWindow::RunTrainDisjoint(Entity image)
         {
             const auto class_result = tree_.Classify(objects);
             const auto error_train = std::ranges::count_if(obj_classes,
-                                                     [&, i=0](uint32_t c) mutable { return c != obj_classes[i++]; });
+                                                     [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
             const auto relative_error = (static_cast<float>(error_train) / static_cast<float>(obj_classes.size())) * 100.f;
             LOG_INFO("Classification result of training data errors={}, relative={}%", error_train, relative_error);
 
@@ -1392,21 +1413,37 @@ void MainWindow::RunTrainDisjoint(Entity image)
     {
         LOG_INFO("Running SVM");
 
-        auto lambda = [](const AttributeList &a, const AttributeList &b) -> float { return KernelRbf(a, b, 0.001f); };
-        svm_.Train(objects, obj_classes, lambda);
+        ensemble_svm_.SetParameterSvm(class_count, params_svm_);
+        ensemble_svm_.Train(objects, obj_classes);
 
-        svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
+        {
+            const auto val_data = RunPreprocessing(validation_patch, image);
+            LOG_INFO("Classification of validation data");
 
+            const auto class_result = ensemble_svm_.Classify(val_data);
 
-        const auto test_data = RunPreprocessing(test_patch, image);
-        LOG_INFO("Running classification");
-        const auto class_result = svm_.Classify(test_data);
-        LOG_INFO("Ended classification");
+            const auto error_test = std::ranges::count_if(validation_labels,
+                                                     [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+            const auto relative_error_test = (static_cast<float>(error_test) / static_cast<float>(validation_labels.size())) * 100.f;
 
-        const auto error = std::ranges::count_if(test_labels,
-                                                 [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+            LOG_INFO("Classification of validation data: errors={}, relative={}%", error_test, relative_error_test);
+            SaveGroundTruth(training_patch, class_result, size, "svm_validation_values.dat");
+        }
+        // svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
 
-        LOG_INFO("Classification result SVM: errors={}, relative={}%", error, error / static_cast<float>(test_labels.size()));
+        {
+            LOG_INFO("Classification of test data");
+            const auto test_data = RunPreprocessing(test_patch, image);
+            LOG_INFO("Running classification");
+            const auto class_result = ensemble_svm_.Classify(test_data);
+            LOG_INFO("Ended classification");
+
+            const auto error = std::ranges::count_if(test_labels,
+                                                     [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+
+            LOG_INFO("Classification result test data: errors={}, relative={}%", error, error / static_cast<float>(test_labels.size()));
+            SaveGroundTruth(test_patch, class_result, size, "svm_test_values.dat");
+        }
     }
     else
     {
@@ -1638,7 +1675,7 @@ std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entitie
     else if (selected_model_ == "SVM")
     {
         LOG_INFO("Classification using SVM");
-        return svm_.Classify(objects);
+        return ensemble_svm_.Classify(objects);;
     }
 
     LOG_ERROR("Unspecified model");
@@ -1754,7 +1791,11 @@ void MainWindow::ShowPixelApproach()
     }
     ImGui::Spacing();
 
-    ImGui::DragFloat("Podział danych", &disjoint_data_split_, 0.1, 0, 1);
+
+    ImGui::PushItemWidth(150);
+    ImGui::DragFloat(reinterpret_cast<const char*>(u8"Podział uczące-testowe"), &disjoint_data_split_, 0.05, 0, 1);
+    ImGui::Spacing();
+    ImGui::DragFloat(reinterpret_cast<const char*>(u8"Podział uczące-walidacyjne"), &disjoint_validation_split_, 0.05, 0, 1);
     ImGui::Spacing();
 }
 

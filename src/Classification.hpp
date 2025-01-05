@@ -74,9 +74,11 @@ class SVM
 public:
     using KernelFunction = std::function<float(const AttributeList&, const AttributeList &)>;
 
-    void Train(const ObjectList &x, const std::vector<uint32_t> &y, const KernelFunction &kernel);
+    void Train(const ObjectList &x, const std::vector<int> &y, const KernelFunction &kernel, float C, float tau, std::size_t max_iter);
 
-    std::vector<uint32_t> Classify(const ObjectList &x);
+    std::vector<int> Classify(const ObjectList &x);
+
+    std::vector<float> FunctionValue(const ObjectList &x) const;
 
     [[nodiscard]] const std::vector<float>& GetAlpha() const { return alpha_; }
     [[nodiscard]] float GetB() const { return b_; }
@@ -86,7 +88,29 @@ private:
     std::vector<float> alpha_{};
     ObjectList x_{};
     KernelFunction kernel_{};
-    std::vector<uint32_t> y_{};
+    std::vector<int> y_{};
+};
+
+struct ParametersSVM
+{
+    std::size_t max_iter;
+    float C;
+    float tau;
+    float gamma;
+};
+
+class EnsembleSvm
+{
+public:
+    void Train(const ObjectList &x, const std::vector<uint32_t> &y);
+
+    std::vector<uint32_t> Classify(const ObjectList &x) const;
+
+    void SetParameterSvm(std::size_t class_count, ParametersSVM parameters);
+
+private:
+    std::vector<SVM> svms_{};
+    ParametersSVM parameters_{};
 };
 
 struct TrainingTestData
@@ -110,10 +134,6 @@ struct PatchSplitData
     std::vector<PatchData> test_data;
     std::vector<uint8_t> test_classes;
 };
-
-
-
-
 
 [[nodiscard]] auto KFoldGeneration(const std::vector<uint32_t> &object_class, uint32_t class_count, uint32_t k_groups=10) -> std::vector<std::vector<std::size_t>>;
 

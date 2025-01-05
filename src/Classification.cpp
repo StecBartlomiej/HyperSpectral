@@ -15,6 +15,7 @@
 #include <cereal/archives/json.hpp>
 #include <cereal/types/map.hpp>
 #include <cereal/types/vector.hpp>
+#include<ranges>
 
 extern Coordinator coordinator;
 
@@ -313,89 +314,126 @@ float KernelRbf(const AttributeList &a1, const AttributeList &a2, const float ga
 }
 
 
-void SVM::Train(const ObjectList &x, const std::vector<uint32_t> &y, const KernelFunction &kernel)
+void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunction &kernel, float C, float tau, std::size_t max_iter)
 {
-    const std::size_t n = x.size();
-    bool J = true;
-    std::vector<float> alpha(x.size(), 0.f);
-    float beta = 1;
-    const float step = 0.0001f;
-    const float limit = 1e-4;
+    // class -1 or 1 => NO ZERO
+    assert(!x.empty());
+    assert(x.size() == y.size());
 
-    while (J)
+    const std::size_t n_size = x.size();
+
+    static constexpr float eps = 1e-4;
+
+    std::vector<float> alpha(n_size, 0.f);
+    std::vector<float> fi{};
+    std::ranges::transform(y, std::back_inserter(fi), [](const auto yi){ return -yi; });
+
+    auto comp_i = [&](std::size_t i1, std::size_t i2) {
+        return fi[i1] < fi[i2];
+    };
+
+    float b_high = -1;
+    float b_low = 1;
+
+    std::size_t i_high = [&] { // min{i: y[i] = 1}
+        const auto iter = std::find(y.begin(), y.end(), 1);
+        return std::distance(y.begin(), iter);
+    }();
+    std::size_t i_low = [&] { // min{i: y[i] = -1}
+        const auto iter = std::find(y.begin(), y.end(), -1);
+        return std::distance(y.begin(), iter);
+    }();
+
+    // 3
+    float ni = kernel(x[i_high], x[i_high]) + kernel(x[i_low], x[i_low]) - 2 * kernel(x[i_low], x[i_high]);
+
+    float new_a_i_low = alpha[i_low] + y[i_low] * ((b_high - b_low) / ni);
+    float new_a_i_high = alpha[i_high] + y[i_low] * y[i_high] * (alpha[i_low] - new_a_i_low);
+
+    if (new_a_i_low  < 0)
+        new_a_i_low = 0;
+    else if (new_a_i_low > C)
+        new_a_i_low = C;
+
+    if (new_a_i_high < 0)
+        new_a_i_high = 0;
+    else if (new_a_i_high > C)
+        new_a_i_high = C;
+
+    std::size_t iter = 0;
+    do
     {
-        J = false;
-
-        for (std::size_t i = 0; i < n; ++i)
+        for (std::size_t i = 0; i < n_size; ++i)
         {
-            float first_term = 0.f;
-            float second_term = 0.f;
+            fi[i] += (new_a_i_high - alpha[i_high]) * y[i_high] * kernel(x[i_high], x[i]) + \
+                     (new_a_i_low  - alpha[i_low])  * y[i_low]  * kernel(x[i_low], x[i]);
+        }
 
-            for (std::size_t j = 0; j < n; ++j)
+        // Working Set
+        std::vector<std::size_t> I_low{}, I_high{};
+        for (std::size_t i = 0; i < n_size; ++i)
+        {
+            if ((alpha[i] > eps && alpha[i] < C - eps) || (y[i] > 0 && alpha[i] <= eps)  || (y[i] < 0 && alpha[i] >= C - eps))
             {
-                const float common_value = alpha[j] * y[i] * y[j];
-
-                first_term += common_value * kernel(x[i], x[j]);
-                second_term += common_value;
+                I_high.push_back(i);
             }
-
-            const float partial_derivative = 1 - first_term - beta * second_term;
-            alpha[i] += step * partial_derivative;
-
-            if (alpha[i] < 0)
+            if ((alpha[i] > eps && alpha[i] < C - eps) || (y[i] > 0 && alpha[i] >= C - eps)  || (y[i] < 0 && alpha[i] <= eps))
             {
-                alpha[i] = 0;
-            }
-            else if (alpha[i] > 1)
-            {
-                alpha[i] = 1;
-            }
-            else if (abs(partial_derivative) > limit)
-            {
-                J = true;
+                I_low.push_back(i);
             }
         }
 
-        float beta_sum = 0.f;
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            beta_sum += alpha[i] * y[i];
-        }
-        beta += 0.5f * beta_sum * beta_sum;
-    }
+        i_high = *std::ranges::min_element(I_high, comp_i);
+        i_low = *std::ranges::max_element(I_low, comp_i);
+        assert(i_high < n_size);
+        assert(i_low < n_size);
 
-    std::size_t count_ns = 0;
-    float b = 0.f;
+        b_high = fi[i_high];
+        b_low = fi[i_low];
 
-    for (std::size_t s = 0; s < n; ++s)
+        alpha[i_low] = new_a_i_low;
+        alpha[i_high] = new_a_i_high;
+
+        ni = kernel(x[i_high], x[i_high]) + kernel(x[i_low], x[i_low]) - 2 * kernel(x[i_low], x[i_high]);
+        new_a_i_low = alpha[i_low] + y[i_low] * ((b_high - b_low) / ni);
+        new_a_i_high = alpha[i_high] + y[i_low] * y[i_high] * (alpha[i_low] - new_a_i_low);
+
+        if (new_a_i_low  < 0)
+            new_a_i_low = 0;
+        else if (new_a_i_low > C)
+            new_a_i_low = C;
+
+        if (new_a_i_high < 0)
+            new_a_i_high = 0;
+        else if (new_a_i_high > C)
+            new_a_i_high = C;
+
+        ++iter;
+    } while (b_low > b_high + 2 * tau && iter < max_iter);
+
+    if (iter >= max_iter)
     {
-        if (alpha[s] <= 0 || alpha[s] >= 1)
-            continue;
-        ++count_ns;
-
-        float sum_alpha = 0.f;
-        for (std::size_t i = 0; i < n; ++i)
-        {
-            sum_alpha += alpha[i] * y[i] * kernel(x[s], x[i]);
-        }
-        b += y[s] - sum_alpha;
+        LOG_INFO("Reached max iter={}, optimality gap: {}", iter, b_high - b_low);
     }
-    b /= static_cast<float>(count_ns);
+    else
+    {
+        LOG_INFO("Reached assigned precision in iter={}, optimality gap: {}",iter, b_high - b_low);
+    }
 
     alpha_ = alpha;
-    b_ = b;
+    b_ = (b_low + b_high) / 2;
     x_ = x;
     y_ = y;
     kernel_ = kernel;
 }
 
-std::vector<uint32_t> SVM::Classify(const ObjectList &x)
+std::vector<int> SVM::Classify(const ObjectList &x)
 {
     assert(!x.empty());
     assert(!x_.empty() && !y_.empty());
     assert(x_.size() == y_.size());
 
-    std::vector<uint32_t> class_result;
+    std::vector<int> class_result;
     class_result.reserve(x.size());
 
     for (const auto &attr: x)
@@ -403,12 +441,100 @@ std::vector<uint32_t> SVM::Classify(const ObjectList &x)
         float f = 0.f;
         for (std::size_t i = 0; i < x_.size(); ++i)
         {
-            f += alpha_[i] * y_[i] * kernel_(x_[i], attr) + b_;
+            f += alpha_[i] * static_cast<float>(y_[i]) * kernel_(x_[i], attr) + b_;
         }
 
-        class_result.push_back(f >= 0 ? 1 : 0);
+        class_result.push_back(f >= 0 ? 1 : -1);
     }
     return class_result;
+}
+
+std::vector<float> SVM::FunctionValue(const ObjectList &x) const
+{
+    assert(!x.empty());
+    assert(!x_.empty() && !y_.empty());
+    assert(x_.size() == y_.size());
+
+    std::vector<float> class_result;
+    class_result.reserve(x.size());
+
+    for (const auto &attr: x)
+    {
+        float f = 0.f;
+        for (std::size_t i = 0; i < x_.size(); ++i)
+        {
+            f += alpha_[i] * static_cast<float>(y_[i]) * kernel_(x_[i], attr) + b_;
+        }
+
+        class_result.push_back(f);
+    }
+    return class_result;
+}
+
+void EnsembleSvm::Train(const ObjectList &x, const std::vector<uint32_t> &y)
+{
+    auto kernel_func = [=](const AttributeList &a1, const AttributeList &a2) -> float {
+        return KernelRbf(a1, a2, parameters_.gamma);
+    };
+
+    std::map<uint32_t, std::vector<std::size_t>> class_to_pos;
+
+    for (const std::size_t i : std::views::iota(0u, y.size()))
+    {
+        assert(y[i] < svms_.size());
+        class_to_pos[y[i]].push_back(i);
+    }
+
+    LOG_INFO("SVM parameters: gamma={}, max_iter={}, C={}, tau={}",
+        parameters_.gamma, parameters_.max_iter, parameters_.C, parameters_.tau);
+
+    for (const std::size_t i : std::views::iota(0u, svms_.size()))
+    {
+        LOG_INFO("Training {} svm", i);
+        auto &svm = svms_[i];
+
+        assert(class_to_pos.contains(i));
+        std::vector<int> obj_class(y.size(), -1);
+
+        for (const auto idx: class_to_pos.at(i))
+        {
+            obj_class[idx] = 1;
+        }
+        svm.Train(x, obj_class, kernel_func, parameters_.C, parameters_.tau, parameters_.max_iter);
+    }
+
+}
+
+std::vector<uint32_t> EnsembleSvm::Classify(const ObjectList &x) const
+{
+    std::vector<std::vector<float>> class_result;
+    class_result.reserve(svms_.size());
+
+    LOG_INFO("Start caluclating function values");
+    for (const std::size_t i : std::views::iota(0u, svms_.size()))
+    {
+        const auto &svm = svms_[i];
+
+        class_result.push_back(svm.FunctionValue(x));
+    }
+    LOG_INFO("Calculated function values, start choosing best");
+
+    std::vector<uint32_t> result;
+    result.reserve(x.size());
+    for (const std::size_t i : std::views::iota(0u, class_result.front().size()))
+    {
+        const auto max_iter = std::ranges::max_element(class_result, [i](const auto &vec1, const auto &vec2){ return vec1[i] < vec2[i]; });
+        result.push_back(std::distance(class_result.begin(), max_iter));
+    }
+    LOG_INFO("End ensemble classfication");
+
+    return result;
+}
+
+void EnsembleSvm::SetParameterSvm(std::size_t class_count, ParametersSVM parameters)
+{
+    svms_.resize(class_count);
+    parameters_ = parameters;
 }
 
 std::vector<std::vector<std::size_t>> KFoldGeneration(const std::vector<uint32_t> &object_class, uint32_t class_count, uint32_t k_groups)
@@ -597,7 +723,7 @@ TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::ve
 PatchSplitData SplitData(const std::vector<PatchData> &object_list, const std::vector<uint8_t> &object_classes,
     std::size_t class_count, float split_ratio)
 {
-       std::random_device rd;
+   std::random_device rd;
     std::mt19937 g(rd());
 
     std::vector<uint32_t> grouped_count(class_count, 0);
