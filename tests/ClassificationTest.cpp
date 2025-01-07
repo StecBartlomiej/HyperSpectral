@@ -12,10 +12,13 @@ TEST_CASE("Small data test", "[DecisionTree]")
     };
 
     std::vector<uint32_t> obj_class = {1, 1, 0};
+    std::vector<uint8_t> prune_class = {1, 1, 0};
+
 
     Tree tree{};
 
     tree.Train(data, obj_class, 2);
+    tree.Pruning(data, obj_class, data, prune_class);
 }
 
 TEST_CASE("K-Fold Validation", "[CUDA]")

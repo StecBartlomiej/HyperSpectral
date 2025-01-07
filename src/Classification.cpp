@@ -12,9 +12,9 @@
 #include <random>
 #include <fstream>
 #include <map>
+#include <queue>
 #include <cereal/archives/json.hpp>
 #include <cereal/types/map.hpp>
-#include <cereal/types/vector.hpp>
 #include<ranges>
 
 extern Coordinator coordinator;
@@ -85,6 +85,119 @@ std::vector<uint32_t> Tree::Classify(const ObjectList &object_list)
 // {
 //     PrintNode("", root, false);
 // }
+
+void Tree::Pruning(const ObjectList &train_list, const std::vector<uint32_t> &train_class,
+    const ObjectList &validation_list, const std::vector<uint8_t> &validation_class)
+{
+
+    auto GetValidationError = [&] {
+        const auto class_result = this->Classify(validation_list);
+        return std::ranges::count_if(validation_class, [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+    };
+
+    uint32_t base_error = GetValidationError();
+    LOG_INFO("Start prunning tree, base classification error on validation data: {}", base_error);
+
+
+    std::stack<Node*> node_stack;
+    std::map<Node*, uint32_t> node_most_class_count;
+    {
+        std::queue<Node*> node_queue;
+        std::map<Node*, std::vector<std::size_t>> node_to_idx{};
+
+        node_queue.push(root);
+
+        {
+            std::vector<std::size_t> idx(train_list.size());
+            std::iota(idx.begin(), idx.end(), 0);
+            node_to_idx[root] = idx;
+        }
+
+        while (!node_queue.empty())
+        {
+            auto *curr_node = node_queue.front();
+            node_queue.pop();
+
+            const auto &vec_idx = node_to_idx.at(curr_node);
+
+            std::vector<std::size_t> left_idx{};
+            std::vector<std::size_t> right_idx{};
+
+            for (const auto idx : vec_idx)
+            {
+                if (train_list[idx][curr_node->attribute_idx] <= curr_node->threshold)
+                {
+                    left_idx.push_back(idx);
+                }
+                else
+                {
+                    right_idx.push_back(idx);
+                }
+            }
+
+
+            if (curr_node->left)
+            {
+                node_to_idx[curr_node->left] = left_idx;
+                node_queue.push(curr_node->left);
+            }
+
+            if (curr_node->right)
+            {
+                node_to_idx[curr_node->right] = right_idx;
+                node_queue.push(curr_node->right);
+            }
+
+            node_stack.push(curr_node);
+        }
+
+        for (const auto& [node, vec_idx] : node_to_idx)
+        {
+            std::vector<uint32_t> class_count(class_count_, 0u);
+            for (const auto idx : vec_idx)
+            {
+                const auto class_idx =  train_class[idx];
+                class_count[class_idx] += 1;
+            }
+            const auto max_iter = std::ranges::max_element(class_count);
+            node_most_class_count[node] = std::distance(class_count.begin(), max_iter);
+        }
+
+    }
+
+
+    auto SwitchToLeaf = [&](Node* node) {
+        assert(node != nullptr);
+        node->left = nullptr;
+        node->right = nullptr;
+
+        node->attribute_idx = node_most_class_count[node];
+    };
+
+    while (node_stack.size() > 1)
+    {
+        auto *curr_node = node_stack.top();
+        node_stack.pop();
+
+
+        Node node_copy = *curr_node;
+
+        SwitchToLeaf(curr_node);
+        const auto new_error = GetValidationError();
+        if (new_error <=  base_error)
+        {
+            base_error = new_error;
+            FreeNodes(node_copy.left);
+            FreeNodes(node_copy.right);
+        }
+        else
+        {
+            *curr_node = node_copy;
+        }
+    }
+
+    LOG_INFO("End prunning tree, classification error on validation data: {}", base_error);
+}
 
 uint32_t Tree::ClassifyObject(const Node *root, const AttributeList &attributes)
 {

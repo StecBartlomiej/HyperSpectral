@@ -12,10 +12,9 @@
 struct Node
 {
     std::size_t attribute_idx;
-    float threshold;
-
     Node *left;
     Node *right;
+    float threshold;
 };
 
 [[nodsicard]] bool IsLeaf(const Node *node) noexcept;
@@ -46,6 +45,9 @@ public:
     [[nodiscard]] std::vector<uint32_t> Classify(const ObjectList &object_list);
 
     [[nodiscard]] const Node* GetRoot() const { return root; }
+
+    void Pruning(const ObjectList &train_list, const std::vector<uint32_t> &train_class,
+                 const ObjectList &validation_list, const std::vector<uint8_t> &validation_class);
 
     // void Print();
 

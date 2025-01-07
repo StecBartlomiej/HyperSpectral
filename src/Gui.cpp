@@ -1360,6 +1360,8 @@ void MainWindow::RunTrainDisjoint(Entity image)
     const auto [training_patch, training_labels, validation_patch, validation_labels] = SplitData(
         train_val_patch, train_val_labels, class_count, disjoint_validation_split_);
 
+    LOG_INFO("training size={}, validation size={}, test size={}", training_patch.size(), validation_patch.size(), test_patch.size());
+
     LOG_INFO("Running preprocessing");
     auto [objects, obj_classes] = RunTrainPreprocessing(training_patch, training_labels, image);
     LOG_INFO("Ended preprocessing");
@@ -1384,6 +1386,11 @@ void MainWindow::RunTrainDisjoint(Entity image)
             LOG_INFO("Classification result of training data errors={}, relative={}%", error_train, relative_error);
 
             SaveGroundTruth(training_patch, class_result, size, "training_values.dat");
+        }
+
+        {
+            const auto validation_data = RunPreprocessing(validation_patch, image);
+            tree_.Pruning(objects, obj_classes, validation_data, validation_labels);
         }
 
         // TEST DATA
