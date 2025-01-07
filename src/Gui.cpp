@@ -7,6 +7,7 @@
 #include "imnodes.h"
 
 #include "cereal/archives/json.hpp"
+#include "cereal/archives/binary.hpp"
 
 #include <cassert>
 #include <map>
@@ -624,50 +625,50 @@ void DataClassificationWindow::Load(std::vector<Entity> entities)
 }
 
 
-void ImagePatchView::Show()
-{
-    if (ImGui::SliderInt("Indeks##idx_patch",  &patch_index_, 1, patch_count, "%d", ImGuiSliderFlags_ClampOnInput))
-    {
-        patch_image_.LoadImage(patch_system_.GetPatchImage(patch_index_ - 1));
-    }
+// void ImagePatchView::Show()
+// {
+//     if (ImGui::SliderInt("Indeks##idx_patch",  &patch_index_, 1, patch_count, "%d", ImGuiSliderFlags_ClampOnInput))
+//     {
+//         // patch_image_.LoadImage(patch_system_.GetPatchImage(patch_index_ - 1));
+//     }
+//
+//     if (ImGui::SliderInt("Pasmo##PASMO_idx_patch",  &selected_band_, 1, patch_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+//     {
+//         patch_image_.SetBand(selected_band_);
+//         // RunThreshold();
+//     }
+//
+//     // if (ImGui::InputFloat(reinterpret_cast<const char *>(u8"Próg"), &threshold_value_, 0.01f, 1.f))
+//     // {
+//     //     RunThreshold();
+//     // }
+//
+//     patch_image_.Show(10, 10);
+//
+//     // if (ImGui::Button("Zapisz"))
+//     // {
+//     //     // saved_settings_ = {.threshold = threshold_value_, .band = selected_band_};
+//     //     // LOG_INFO("Threshold popup window, saved settings: threshold={}, band={}", threshold_value_, selected_band_);
+//     //     // ImGui::CloseCurrentPopup();
+//     // }
+// }
 
-    if (ImGui::SliderInt("Pasmo##PASMO_idx_patch",  &selected_band_, 1, patch_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
-    {
-        patch_image_.SetBand(selected_band_);
-        // RunThreshold();
-    }
-
-    // if (ImGui::InputFloat(reinterpret_cast<const char *>(u8"Próg"), &threshold_value_, 0.01f, 1.f))
-    // {
-    //     RunThreshold();
-    // }
-
-    patch_image_.Show(10, 10);
-
-    // if (ImGui::Button("Zapisz"))
-    // {
-    //     // saved_settings_ = {.threshold = threshold_value_, .band = selected_band_};
-    //     // LOG_INFO("Threshold popup window, saved settings: threshold={}, band={}", threshold_value_, selected_band_);
-    //     // ImGui::CloseCurrentPopup();
-    // }
-}
-
-void ImagePatchView::Load(Entity img)
-{
-    patch_system_.parent_img = img;
-    parent_ = img;
-
-    const auto size = coordinator.GetComponent<ImageSize>(parent_);
-
-    patch_image_.LoadImage(patch_system_.GetPatchImage(0));
-
-    patch_count = patch_system_.GetPatchNumbers(size);
-    LOG_INFO("Patch count: {}", patch_count);
-
-    patch_size_.width = PatchData::S;
-    patch_size_.height = PatchData::S;
-    patch_size_.depth = size.depth;
-}
+// void ImagePatchView::Load(Entity img)
+// {
+//     patch_system_.parent_img = img;
+//     parent_ = img;
+//
+//     const auto size = coordinator.GetComponent<ImageSize>(parent_);
+//
+//     patch_image_.LoadImage(patch_system_.GetPatchImage(0));
+//
+//     patch_count = patch_system_.GetPatchNumbers(size);
+//     LOG_INFO("Patch count: {}", patch_count);
+//
+//     patch_size_.width = PatchData::S;
+//     patch_size_.height = PatchData::S;
+//     patch_size_.depth = size.depth;
+// }
 
 void LabelPopupWindow::Show()
 {
@@ -1030,6 +1031,24 @@ void MainWindow::Show()
             }
             if (ImGui::BeginTabItem("SVM"))
             {
+                if (ImGui::Button("Zapisz model"))
+                {
+                    std::ofstream file("svm_model.bin", std::ios::binary);
+                    cereal::BinaryOutputArchive out_archive(file);
+                    out_archive(ensemble_svm_);
+                }
+                if (ImGui::Button("Wczytaj SVM"))
+                {
+                    std::ifstream file("svm_model.bin", std::ios::binary);
+                    if (!file.is_open())
+                    {
+                        LOG_WARN("SVM model file could not be opened or doesnt exists!");
+                        return;
+                    }
+                    cereal::BinaryInputArchive in_archive(file);
+                    in_archive(ensemble_svm_);
+                }
+
                 svm_view_window_.Show();
                 ImGui::EndTabItem();
             }
@@ -1366,7 +1385,6 @@ void MainWindow::RunTrainDisjoint(Entity image)
     auto [objects, obj_classes] = RunTrainPreprocessing(training_patch, training_labels, image);
     LOG_INFO("Ended preprocessing");
 
-
     LOG_INFO("Training classification");
     if (selected_model_ == "Drzewo decyzyjne")
     {
@@ -1434,7 +1452,7 @@ void MainWindow::RunTrainDisjoint(Entity image)
             const auto relative_error_test = (static_cast<float>(error_test) / static_cast<float>(validation_labels.size())) * 100.f;
 
             LOG_INFO("Classification of validation data: errors={}, relative={}%", error_test, relative_error_test);
-            SaveGroundTruth(training_patch, class_result, size, "svm_validation_values.dat");
+            SaveGroundTruth(validation_patch, class_result, size, "svm_validation_values.dat");
         }
         // svm_view_window_.Set(svm_.GetAlpha(), svm_.GetB());
 
@@ -1472,7 +1490,7 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchData
     const auto size = coordinator.GetComponent<ImageSize>(image);
     const ImageSize patch_size = add_neighbour_bands_ ?
         ImageSize{PatchData::S - 2, PatchData::S - 2, size.depth * 9} : ImageSize{PatchData::S, PatchData::S, size.depth};
-    const auto threshold_setting = threshold_popup_window_.GetThresholdSettings().value_or(ThresholdSetting{0.f, 0});
+    const auto threshold_setting = threshold_popup_window_.GetThresholdSettings().value_or(ThresholdSetting{0.f, 1});
 
     PatchSystem patch_system{};
     patch_system.parent_img = image;
@@ -1490,13 +1508,11 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchData
         LOG_INFO("Adding neighbour bands");
 
     /// PCA
-    auto LoadData = [&](std::size_t i) -> CpuMatrix {
+    auto LoadData = [&, size](std::size_t i) -> CpuMatrix {
         assert(i < patch_positions.size());
 
         const auto [x, y] = patch_positions[i];
-        const auto patch_idx = y * size.width + x;
-
-        CpuMatrix patch = patch_system.GetPatchImage(patch_idx);
+        CpuMatrix patch = patch_system.GetPatchImage(x, y);
 
         if (add_neighbour_bands_)
             patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
@@ -1561,9 +1577,7 @@ ObjectList MainWindow::RunPreprocessing(const std::vector<PatchData> &patch_posi
         assert(i < patch_positions.size());
 
         const auto [x, y] = patch_positions[i];
-        const auto patch_idx = y * size.width + x;
-
-        CpuMatrix patch = patch_system.GetPatchImage(patch_idx);
+        CpuMatrix patch = patch_system.GetPatchImage(x, y);
 
         if (add_neighbour_bands_)
             patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
@@ -1602,6 +1616,27 @@ ObjectList MainWindow::RunPreprocessing(const std::vector<PatchData> &patch_posi
             const float diff_var =  var.max - var.min;
             const float diff_skew = skew.max - skew.min;
             const float diff_kurt = kurt.max - kurt.min;
+
+            if (diff_mean == 0)
+            {
+                LOG_INFO("diff_mean = 0.0");
+                throw std::runtime_error("a");
+            }
+            if (diff_var == 0)
+            {
+                LOG_INFO("diff_var = 0.0");
+                throw std::runtime_error("a");
+            }
+            if (diff_skew == 0)
+            {
+                LOG_INFO("diff_skew = 0.0");
+                throw std::runtime_error("a");
+            }
+            if (diff_kurt == 0)
+            {
+                LOG_INFO("diff_kurt = 0.0");
+                throw std::runtime_error("a");
+            }
 
             const float n_mean = (stat_value.mean - mean.min) / diff_mean;
             const float n_variance = (stat_value.variance - var.min) / diff_var;
@@ -1682,7 +1717,7 @@ std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entitie
     else if (selected_model_ == "SVM")
     {
         LOG_INFO("Classification using SVM");
-        return ensemble_svm_.Classify(objects);;
+        return ensemble_svm_.Classify(objects);
     }
 
     LOG_ERROR("Unspecified model");
@@ -1731,11 +1766,11 @@ void MainWindow::ShowPopupsWindow()
         ImGui::EndPopup();
     }
 
-    if (ImGui::BeginPopup("Okno patch"))
-    {
-        patch_view_.Show();
-        ImGui::EndPopup();
-    }
+    // if (ImGui::BeginPopup("Okno patch"))
+    // {
+    //     patch_view_.Show();
+    //     ImGui::EndPopup();
+    // }
 
     if (ImGui::BeginPopup("Tabela prawdy"))
     {
@@ -1783,20 +1818,20 @@ void MainWindow::ShowPixelApproach()
 
     ImGui::Spacing();
 
-    if (ImGui::Button(reinterpret_cast<const char*>(u8"Zobacz próbki")))
-    {
-        auto opt_entity = threshold_window_.LoadedEntity();
-        if (!opt_entity.has_value())
-        {
-            LOG_WARN("Load entity before viewing patches");
-        }
-        else
-        {
-            patch_view_.Load(opt_entity.value());
-            ImGui::OpenPopup("Okno patch");
-        }
-    }
-    ImGui::Spacing();
+    // if (ImGui::Button(reinterpret_cast<const char*>(u8"Zobacz próbki")))
+    // {
+    //     auto opt_entity = threshold_window_.LoadedEntity();
+    //     if (!opt_entity.has_value())
+    //     {
+    //         LOG_WARN("Load entity before viewing patches");
+    //     }
+    //     else
+    //     {
+    //         patch_view_.Load(opt_entity.value());
+    //         ImGui::OpenPopup("Okno patch");
+    //     }
+    // }
+    // ImGui::Spacing();
 
 
     ImGui::PushItemWidth(150);

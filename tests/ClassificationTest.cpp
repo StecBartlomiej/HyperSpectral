@@ -70,10 +70,48 @@ TEST_CASE("SVM", "[Classification]")
         return KernelRbf(a1, a2, gamma);
     };
 
-
     SVM svm{};
 
     svm.Train(object_list, obj_class, kernel_func, C, tau, max_iter);
+    auto result_class = svm.Classify(object_list);
 
+    REQUIRE(result_class.size() == obj_class.size());
+
+    for (std::size_t i = 0; i < obj_class.size(); i++)
+    {
+        REQUIRE(result_class[i] == obj_class[i]);
+    }
 }
 
+TEST_CASE("Ensemble SVM", "[CUDA]")
+{
+    const AttributeList x1{0.8147, 0.9058, 0.1270, 0.9134, 0.6324};
+    const AttributeList x2{0.0975, 0.2785, 0.5469, 0.9575, 0.9649};
+    const AttributeList x3{0.1576, 0.9706, 0.9572, 0.4854, 0.8003};
+    const AttributeList x4{0.1419, 0.4218, 0.9157, 0.7922, 0.9595};
+    const AttributeList x5{-1, -1, -1, -1, -1};
+    const AttributeList x6{-1.2, -1.2, -1.2, -1.2, -1.2};
+
+    ObjectList object_list{x1, x2, x3, x4, x5, x6};
+    std::vector<uint32_t> obj_class{0, 0, 1, 1, 2, 2};
+
+    const ParametersSVM parameters_svm {
+        .max_iter = 10000,
+        .C = 100,
+        .tau = 0.1,
+        .gamma = 0.1
+    };
+
+    EnsembleSvm ensemble_svm{};
+    ensemble_svm.SetParameterSvm(3, parameters_svm);
+
+    ensemble_svm.Train(object_list, obj_class);
+    auto result_class = ensemble_svm.Classify(object_list);
+
+    REQUIRE(result_class.size() == obj_class.size());
+
+    for (std::size_t i = 0; i < obj_class.size(); i++)
+    {
+        REQUIRE(result_class[i] == obj_class[i]);
+    }
+}

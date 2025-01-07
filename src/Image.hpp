@@ -304,7 +304,7 @@ public:
 
     [[nodiscard]] std::size_t GetPatchNumbers(ImageSize size);
 
-    [[nodiscard]] CpuMatrix GetPatchImage(std::size_t patch_idx);
+    [[nodiscard]] CpuMatrix GetPatchImage(int center_x, int center_y) const;
 
     [[nodiscard]] PatchData GeneratePatch(ImageSize size, std::size_t patch_idx);
 

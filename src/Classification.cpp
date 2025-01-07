@@ -426,6 +426,16 @@ float KernelRbf(const AttributeList &a1, const AttributeList &a2, const float ga
     return std::exp(-gamma * l2_squared);
 }
 
+float KernelLinear(const AttributeList &a1, const AttributeList &a2)
+{
+    return std::accumulate(
+        a1.data(),
+        a1.data() + a1.size(),
+        0.0f,
+        [&, i=0](float acc, float val) mutable { return acc + (val * a2[i++]); }
+    );
+}
+
 
 void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunction &kernel, float C, float tau, std::size_t max_iter)
 {
@@ -435,13 +445,13 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
 
     const std::size_t n_size = x.size();
 
-    static constexpr float eps = 1e-4;
+    static constexpr float eps = 1e-6;
 
     std::vector<float> alpha(n_size, 0.f);
     std::vector<float> fi{};
     std::ranges::transform(y, std::back_inserter(fi), [](const auto yi){ return -yi; });
 
-    auto comp_i = [&](std::size_t i1, std::size_t i2) {
+    auto comp_i = [&](const std::size_t i1, const std::size_t i2) {
         return fi[i1] < fi[i2];
     };
 
@@ -460,8 +470,8 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
     // 3
     float ni = kernel(x[i_high], x[i_high]) + kernel(x[i_low], x[i_low]) - 2 * kernel(x[i_low], x[i_high]);
 
-    float new_a_i_low = alpha[i_low] + y[i_low] * ((b_high - b_low) / ni);
-    float new_a_i_high = alpha[i_high] + y[i_low] * y[i_high] * (alpha[i_low] - new_a_i_low);
+    float new_a_i_low = alpha[i_low] + static_cast<float>(y[i_low]) * ((b_high - b_low) / ni);
+    float new_a_i_high = alpha[i_high] + static_cast<float>(y[i_low]) * static_cast<float>(y[i_high]) * (alpha[i_low] - new_a_i_low);
 
     if (new_a_i_low  < 0)
         new_a_i_low = 0;
@@ -508,8 +518,8 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
         alpha[i_high] = new_a_i_high;
 
         ni = kernel(x[i_high], x[i_high]) + kernel(x[i_low], x[i_low]) - 2 * kernel(x[i_low], x[i_high]);
-        new_a_i_low = alpha[i_low] + y[i_low] * ((b_high - b_low) / ni);
-        new_a_i_high = alpha[i_high] + y[i_low] * y[i_high] * (alpha[i_low] - new_a_i_low);
+        new_a_i_low = alpha[i_low] + static_cast<float>(y[i_low]) * ((b_high - b_low) / ni);
+        new_a_i_high = alpha[i_high] + static_cast<float>(y[i_low]) * static_cast<float>(y[i_high]) * (alpha[i_low] - new_a_i_low);
 
         if (new_a_i_low  < 0)
             new_a_i_low = 0;
@@ -533,30 +543,28 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
         LOG_INFO("Reached assigned precision in iter={}, optimality gap: {}",iter, b_high - b_low);
     }
 
+    alpha_y_.reserve(n_size);
+    for (std::size_t i = 0; i < n_size; ++i)
+    {
+        alpha_y_.push_back(static_cast<float>(y[i]) * alpha[i]);
+    }
+
     alpha_ = alpha;
     b_ = (b_low + b_high) / 2;
     x_ = x;
-    y_ = y;
     kernel_ = kernel;
 }
 
 std::vector<int> SVM::Classify(const ObjectList &x)
 {
     assert(!x.empty());
-    assert(!x_.empty() && !y_.empty());
-    assert(x_.size() == y_.size());
 
     std::vector<int> class_result;
     class_result.reserve(x.size());
 
-    for (const auto &attr: x)
+    const auto func_value = FunctionValue(x);
+    for (const auto f : func_value)
     {
-        float f = 0.f;
-        for (std::size_t i = 0; i < x_.size(); ++i)
-        {
-            f += alpha_[i] * static_cast<float>(y_[i]) * kernel_(x_[i], attr) + b_;
-        }
-
         class_result.push_back(f >= 0 ? 1 : -1);
     }
     return class_result;
@@ -565,20 +573,28 @@ std::vector<int> SVM::Classify(const ObjectList &x)
 std::vector<float> SVM::FunctionValue(const ObjectList &x) const
 {
     assert(!x.empty());
-    assert(!x_.empty() && !y_.empty());
-    assert(x_.size() == y_.size());
 
     std::vector<float> class_result;
     class_result.reserve(x.size());
 
-    for (const auto &attr: x)
+    for (const auto &obj: x)
     {
-        float f = 0.f;
+        float f = b_;
         for (std::size_t i = 0; i < x_.size(); ++i)
         {
-            f += alpha_[i] * static_cast<float>(y_[i]) * kernel_(x_[i], attr) + b_;
-        }
+            const auto ay = alpha_y_[i];
+            const auto ker = kernel_(x_[i], obj);
+            const auto fi = ay * ker;
 
+            f += fi;
+
+            if (isnan(fi) || isnan(f))
+            {
+                LOG_INFO("Is NaN: x={}, obj={} ay={}, ker={}, fi={}, f={}", fmt::join(x_[i], ","),
+                    fmt::join(obj, ", "), ay, ker, fi, f);
+                throw std::runtime_error("Is NaN");
+            }
+        }
         class_result.push_back(f);
     }
     return class_result;
@@ -588,6 +604,7 @@ void EnsembleSvm::Train(const ObjectList &x, const std::vector<uint32_t> &y)
 {
     auto kernel_func = [=](const AttributeList &a1, const AttributeList &a2) -> float {
         return KernelRbf(a1, a2, parameters_.gamma);
+        // return KernelLinear(a1, a2);
     };
 
     std::map<uint32_t, std::vector<std::size_t>> class_to_pos;
@@ -626,6 +643,7 @@ std::vector<uint32_t> EnsembleSvm::Classify(const ObjectList &x) const
     LOG_INFO("Start caluclating function values");
     for (const std::size_t i : std::views::iota(0u, svms_.size()))
     {
+        LOG_INFO("svm={}", i);
         const auto &svm = svms_[i];
 
         class_result.push_back(svm.FunctionValue(x));
@@ -634,10 +652,21 @@ std::vector<uint32_t> EnsembleSvm::Classify(const ObjectList &x) const
 
     std::vector<uint32_t> result;
     result.reserve(x.size());
-    for (const std::size_t i : std::views::iota(0u, class_result.front().size()))
+
+    for (const std::size_t i : std::views::iota(0u, x.size()))
     {
-        const auto max_iter = std::ranges::max_element(class_result, [i](const auto &vec1, const auto &vec2){ return vec1[i] < vec2[i]; });
-        result.push_back(std::distance(class_result.begin(), max_iter));
+        float max_value = -std::numeric_limits<float>::max();
+        std::size_t class_idx = 0;
+
+        for (const std::size_t j : std::views::iota(0u, svms_.size()))
+        {
+            if (class_result[j][i] > max_value)
+            {
+                max_value = class_result[j][i];
+                class_idx = j;
+            }
+        }
+        result.push_back(class_idx);
     }
     LOG_INFO("End ensemble classfication");
 

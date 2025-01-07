@@ -873,9 +873,9 @@ std::size_t PatchSystem::GetPatchNumbers(ImageSize size)
     return size.width * size.height;
 }
 
-CpuMatrix PatchSystem::GetPatchImage(std::size_t patch_idx)
+CpuMatrix PatchSystem::GetPatchImage(int center_x, int center_y) const
 {
-    static constexpr std::size_t margin = PatchData::S / 2;
+    static constexpr int margin = PatchData::S / 2;
 
     const auto [size, img_data] = GetImageData(parent_img);
 
@@ -887,13 +887,11 @@ CpuMatrix PatchSystem::GetPatchImage(std::size_t patch_idx)
         std::make_shared<float[]>(S * S * size.depth)
     };
 
-    const auto [center_x, center_y] = GeneratePatch(size, patch_idx);
-
-    for (std::size_t band = 0; band < size.depth; band++)
+    for (int band = 0; band < size.depth; band++)
     {
-        for (int y = center_y - margin, iy=0; y < center_y + margin; ++y, ++iy)
+        for (int y = static_cast<int>(center_y) - margin, iy=0; y < center_y + margin; ++y, ++iy)
         {
-            for (int x = center_x - margin, ix=0; x < center_x + margin; ++x, ++ix)
+            for (int x = static_cast<int>(center_x) - margin, ix=0; x < center_x + margin; ++x, ++ix)
             {
                 float *value = result.data.get() + iy * S + ix + band * S * S;
 

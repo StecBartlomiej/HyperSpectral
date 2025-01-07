@@ -212,22 +212,22 @@ private:
     int class_count_ = 1;
 };
 
-class ImagePatchView
-{
-public:
-    void Show();
-
-    void Load(Entity img);
-
-private:
-    Entity parent_{};
-    PatchSystem patch_system_{};
-    Image patch_image_{};
-    ImageSize patch_size_{};
-    int selected_band_ = 1;
-    int patch_count = 0;
-    int patch_index_ = 0;
-};
+// class ImagePatchView
+// {
+// public:
+//     void Show();
+//
+//     void Load(Entity img);
+//
+// private:
+//     Entity parent_{};
+//     PatchSystem patch_system_{};
+//     Image patch_image_{};
+//     ImageSize patch_size_{};
+//     int selected_band_ = 1;
+//     int patch_count = 0;
+//     int patch_index_ = 0;
+// };
 
 
 class LabelPopupWindow
@@ -339,7 +339,7 @@ private:
     DataClassificationWindow data_classification_window_{};
     TreeViewWindow tree_view_window_{};
     SvmViewWindow svm_view_window_{};
-    ImagePatchView patch_view_{};
+    // ImagePatchView patch_view_{};
     LabelPopupWindow label_popup_window_{};
     Tree tree_{};
     EnsembleSvm ensemble_svm_{};

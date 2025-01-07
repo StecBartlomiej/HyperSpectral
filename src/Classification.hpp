@@ -4,6 +4,10 @@
 #include "EntityComponentSystem.hpp"
 #include "Components.hpp"
 
+#include "cereal/cereal.hpp"
+#include <cereal/types/vector.hpp>
+
+
 #include <vector>
 #include <string>
 #include <functional>
@@ -71,6 +75,9 @@ void printBT(Node node);
 
 [[nodiscard]] float KernelRbf(const AttributeList &a1, const AttributeList &a2, float gamma);
 
+[[nodiscard]] float KernelLinear(const AttributeList &a1, const AttributeList &a2);
+
+
 class SVM
 {
 public:
@@ -85,12 +92,25 @@ public:
     [[nodiscard]] const std::vector<float>& GetAlpha() const { return alpha_; }
     [[nodiscard]] float GetB() const { return b_; }
 
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        archive(
+            CEREAL_NVP(b_),
+            CEREAL_NVP(x_),
+            CEREAL_NVP(alpha_),
+            CEREAL_NVP(alpha_y_)
+            );
+    }
+
+    friend std::vector<float> CudaSvmFunctionValue(const ObjectList &object_list, const SVM &svm, float gamma);
+
 private:
     float b_{};
-    std::vector<float> alpha_{};
     ObjectList x_{};
     KernelFunction kernel_{};
-    std::vector<int> y_{};
+    std::vector<float> alpha_{};
+    std::vector<float> alpha_y_{};
 };
 
 struct ParametersSVM
@@ -99,6 +119,18 @@ struct ParametersSVM
     float C;
     float tau;
     float gamma;
+
+
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        archive(
+            CEREAL_NVP(max_iter),
+            CEREAL_NVP(C),
+            CEREAL_NVP(tau),
+            CEREAL_NVP(gamma)
+            );
+    }
 };
 
 class EnsembleSvm
@@ -109,6 +141,16 @@ public:
     std::vector<uint32_t> Classify(const ObjectList &x) const;
 
     void SetParameterSvm(std::size_t class_count, ParametersSVM parameters);
+
+
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        archive(
+            CEREAL_NVP(svms_),
+            CEREAL_NVP(parameters_)
+            );
+    }
 
 private:
     std::vector<SVM> svms_{};
