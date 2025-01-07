@@ -625,51 +625,6 @@ void DataClassificationWindow::Load(std::vector<Entity> entities)
 }
 
 
-// void ImagePatchView::Show()
-// {
-//     if (ImGui::SliderInt("Indeks##idx_patch",  &patch_index_, 1, patch_count, "%d", ImGuiSliderFlags_ClampOnInput))
-//     {
-//         // patch_image_.LoadImage(patch_system_.GetPatchImage(patch_index_ - 1));
-//     }
-//
-//     if (ImGui::SliderInt("Pasmo##PASMO_idx_patch",  &selected_band_, 1, patch_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
-//     {
-//         patch_image_.SetBand(selected_band_);
-//         // RunThreshold();
-//     }
-//
-//     // if (ImGui::InputFloat(reinterpret_cast<const char *>(u8"Próg"), &threshold_value_, 0.01f, 1.f))
-//     // {
-//     //     RunThreshold();
-//     // }
-//
-//     patch_image_.Show(10, 10);
-//
-//     // if (ImGui::Button("Zapisz"))
-//     // {
-//     //     // saved_settings_ = {.threshold = threshold_value_, .band = selected_band_};
-//     //     // LOG_INFO("Threshold popup window, saved settings: threshold={}, band={}", threshold_value_, selected_band_);
-//     //     // ImGui::CloseCurrentPopup();
-//     // }
-// }
-
-// void ImagePatchView::Load(Entity img)
-// {
-//     patch_system_.parent_img = img;
-//     parent_ = img;
-//
-//     const auto size = coordinator.GetComponent<ImageSize>(parent_);
-//
-//     patch_image_.LoadImage(patch_system_.GetPatchImage(0));
-//
-//     patch_count = patch_system_.GetPatchNumbers(size);
-//     LOG_INFO("Patch count: {}", patch_count);
-//
-//     patch_size_.width = PatchData::S;
-//     patch_size_.height = PatchData::S;
-//     patch_size_.depth = size.depth;
-// }
-
 void LabelPopupWindow::Show()
 {
     ImGui::SliderInt("Liczba klas",  &class_count_, 1, 16, "%d", ImGuiSliderFlags_ClampOnInput);
@@ -1766,12 +1721,6 @@ void MainWindow::ShowPopupsWindow()
         ImGui::EndPopup();
     }
 
-    // if (ImGui::BeginPopup("Okno patch"))
-    // {
-    //     patch_view_.Show();
-    //     ImGui::EndPopup();
-    // }
-
     if (ImGui::BeginPopup("Tabela prawdy"))
     {
         label_popup_window_.Show();
@@ -1817,22 +1766,6 @@ void MainWindow::ShowPixelApproach()
     ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
 
     ImGui::Spacing();
-
-    // if (ImGui::Button(reinterpret_cast<const char*>(u8"Zobacz próbki")))
-    // {
-    //     auto opt_entity = threshold_window_.LoadedEntity();
-    //     if (!opt_entity.has_value())
-    //     {
-    //         LOG_WARN("Load entity before viewing patches");
-    //     }
-    //     else
-    //     {
-    //         patch_view_.Load(opt_entity.value());
-    //         ImGui::OpenPopup("Okno patch");
-    //     }
-    // }
-    // ImGui::Spacing();
-
 
     ImGui::PushItemWidth(150);
     ImGui::DragFloat(reinterpret_cast<const char*>(u8"Podział uczące-testowe"), &disjoint_data_split_, 0.05, 0, 1);
