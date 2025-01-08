@@ -189,4 +189,7 @@ struct PatchSplitData
 
 void SaveClassificationResult(const std::vector<Entity> &data, const std::vector<uint32_t> &data_classes, std::ostream &out);
 
+
+[[nodiscard]] float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t> &result_class, uint32_t class_count);
+
 #endif //CLASSIFICATION_HPP

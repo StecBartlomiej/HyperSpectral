@@ -1372,13 +1372,16 @@ void MainWindow::RunTrainDisjoint(Entity image)
 
             LOG_INFO("Running classification");
 
-            const auto class_result_2 = tree_.Classify(test_data);
+            const auto class_result = tree_.Classify(test_data);
             const auto error_test = std::ranges::count_if(test_labels,
-                                                     [&, i=0](uint32_t c) mutable { return c != class_result_2[i++]; });
+                                                     [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
+
             const auto relative_error_test = (static_cast<float>(error_test) / static_cast<float>(test_labels.size())) * 100.f;
             LOG_INFO("Classification result: errors={}, relative={}%", error_test, relative_error_test);
 
-            SaveGroundTruth(test_patch, class_result_2, size, "test_values.dat");
+            LOG_INFO("Test values F1 score = {}", ScoreF1(obj_classes, class_result, class_count));
+
+            SaveGroundTruth(test_patch, class_result, size, "test_values.dat");
         }
 
         // Unknown data
@@ -1422,6 +1425,9 @@ void MainWindow::RunTrainDisjoint(Entity image)
                                                      [&, i=0](uint32_t c) mutable { return c != class_result[i++]; });
 
             LOG_INFO("Classification result test data: errors={}, relative={}%", error, error / static_cast<float>(test_labels.size()));
+
+            LOG_INFO("Test values F1 score = {}", ScoreF1(obj_classes, class_result, class_count));
+
             SaveGroundTruth(test_patch, class_result, size, "svm_test_values.dat");
         }
     }

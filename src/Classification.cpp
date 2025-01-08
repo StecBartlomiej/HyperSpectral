@@ -942,3 +942,65 @@ void SaveClassificationResult(const std::vector<Entity> &data, const std::vector
     }
     archive(cereal::make_nvp("Classification_result", map));
 }
+
+
+float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t> &result_class, uint32_t class_count)
+{
+    assert(!obj_class.empty());
+    assert(obj_class.size() == result_class.size());
+
+    std::vector<uint32_t> true_positive(class_count, 0);
+    std::vector<uint32_t> false_positive(class_count, 0);
+    std::vector<uint32_t> false_negative(class_count, 0);
+
+    std::vector<uint32_t> class_size(class_count, 0);
+
+    for (uint32_t curr_class = 0; curr_class < class_count; ++curr_class)
+    {
+        for (const auto idx : std::views::iota(0u, obj_class.size()))
+        {
+            // True positive
+            if (obj_class[idx] == curr_class && result_class[idx] == curr_class)
+            {
+                true_positive[curr_class] += 1;
+                class_size[curr_class] += 1;
+            }
+            // False negative
+            else if (obj_class[idx] == curr_class && result_class[idx] != curr_class)
+            {
+                false_negative[curr_class] += 1;
+                class_size[curr_class] += 1;
+            }
+            // False positive
+            else if (obj_class[idx] != curr_class && result_class[idx] == curr_class)
+            {
+                false_positive[curr_class] += 1;
+            }
+        }
+    }
+
+    float avg_precision = 0.f;
+    float avg_recall = 0.f;
+    float tp = 0.f;
+    float fp = 0.f;
+    float fn = 0.f;
+
+    for (std::size_t class_id = 0; class_id < class_count; ++class_id)
+    {
+        avg_precision += static_cast<float>(true_positive[class_id]) / (true_positive[class_id] + false_positive[class_id]);
+        avg_recall +=    static_cast<float>(true_positive[class_id]) / (true_positive[class_id] + false_negative[class_id]);
+
+        tp += static_cast<float>(true_positive[class_id]);
+        fp += static_cast<float>(false_positive[class_id]);
+        fn += static_cast<float>(false_negative[class_id]);
+    }
+
+    avg_precision /= static_cast<float>(class_count);
+    avg_recall /= static_cast<float>(class_count);
+
+    const float f1_score_macro = 2 * (avg_precision * avg_recall) / (avg_precision + avg_recall);
+    LOG_INFO("F1_score macro = {}", f1_score_macro);
+
+    const float f1_score_micro = 2.f * tp / (2.f * tp + fp + fn);
+    return f1_score_micro;
+}

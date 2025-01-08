@@ -115,3 +115,38 @@ TEST_CASE("Ensemble SVM", "[CUDA]")
         REQUIRE(result_class[i] == obj_class[i]);
     }
 }
+
+TEST_CASE("F1 score", "[Classification]")
+{
+    std::vector<uint32_t> obj_class{};
+    std::vector<uint32_t> result_class{};
+
+    // True negative
+    for (std::size_t i = 0; i < 55; i++)
+    {
+        obj_class.push_back(10);
+        result_class.push_back(10);
+    }
+    // False positive
+    for (std::size_t i = 0; i < 5; i++)
+    {
+        obj_class.push_back(10);
+        result_class.push_back(0);
+    }
+    // False negative
+    for (std::size_t i = 0; i < 10; i++)
+    {
+        obj_class.push_back(0);
+        result_class.push_back(10);
+    }
+    // True positive
+    for (std::size_t i = 0; i < 30; i++)
+    {
+        obj_class.push_back(0);
+        result_class.push_back(0);
+    }
+
+    const auto f1_score = ScoreF1(obj_class, result_class, 1);
+
+    REQUIRE_THAT(f1_score, Catch::Matchers::WithinRel(0.799f, 0.01f));
+}
