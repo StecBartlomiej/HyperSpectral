@@ -906,7 +906,24 @@ CpuMatrix PatchSystem::GetPatchImage(int center_x, int center_y) const
     return std::move(result);
 }
 
-PatchData PatchSystem::GeneratePatch(ImageSize size, std::size_t patch_idx)
+float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, const float gamma)
+{
+    assert(!a1.empty() && !a2.empty());
+    assert(a1.size() == a2.size());
+
+    auto power_2 = []  __host__ __device__ (float x) { return x * x; };
+
+    std::vector<float> difference(a1.size(), 0);
+    thrust::transform(thrust::host, a1.begin(), a1.end(), a2.begin(), difference.begin(), thrust::minus<float>());
+
+    auto begin_iter = thrust::make_transform_iterator(difference.begin(), power_2);
+    auto end_iter = thrust::make_transform_iterator(difference.end(), power_2);
+
+    const float l2_power = thrust::reduce(begin_iter, end_iter, 0.f);
+
+    return std::exp(-gamma * l2_power);
+}
+
 {
     static constexpr std::size_t margin = PatchData::S / 2;
 

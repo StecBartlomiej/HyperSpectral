@@ -66,7 +66,7 @@ private:
     Node *root{};
     std::size_t attributes_count_ = 0;
     std::size_t class_count_ = 0;
-    std::size_t max_depth_ = 7;
+    std::size_t max_depth_ = 8;
 };
 
 void FreeNodes(Node *node);
@@ -138,7 +138,7 @@ class EnsembleSvm
 public:
     void Train(const ObjectList &x, const std::vector<uint32_t> &y);
 
-    std::vector<uint32_t> Classify(const ObjectList &x) const;
+    [[nodiscard]] std::vector<uint32_t> Classify(const ObjectList &x) const;
 
     void SetParameterSvm(std::size_t class_count, ParametersSVM parameters);
 

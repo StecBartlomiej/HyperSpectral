@@ -208,6 +208,8 @@ __global__ void PieceWiseDivision(Matrix m, float divisor);
 __global__ void MatMulTrans(Matrix img, Matrix result);
 
 
+[[nodiscard]] float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, float gamma);
+
 struct ResultPCA
 {
     CpuMatrix eigenvalues;

@@ -19,7 +19,7 @@ add_library(lib_hypercpp STATIC ${SOURCE_FILES})
 target_include_directories(lib_hypercpp PUBLIC "."  "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}" "${cereal_SOURCE_DIR}/include/" "${imgui_node_SOURCE_DIR}")
 target_link_libraries(lib_hypercpp PUBLIC spdlog::spdlog cublas cusolver)
 set_target_properties(lib_hypercpp PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
-
+target_compile_options(lib_hypercpp PRIVATE $<$<COMPILE_LANGUAGE:CUDA>: --extended-lambda>)
 
 add_library(lib_gui STATIC ${GUI_SOURCE_FILES})
 target_link_libraries(lib_gui PUBLIC glad_gl_core_43)

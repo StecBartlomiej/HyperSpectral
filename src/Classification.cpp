@@ -11,11 +11,14 @@
 #include <numeric>
 #include <random>
 #include <fstream>
+#include <Image.hpp>
 #include <map>
 #include <queue>
 #include <cereal/archives/json.hpp>
 #include <cereal/types/map.hpp>
 #include<ranges>
+#include <thrust/device_vector.h>
+#include <thrust/system/cuda/config.h>
 
 extern Coordinator coordinator;
 
@@ -458,6 +461,8 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
     float b_high = -1;
     float b_low = 1;
 
+    float B = 0.f;
+
     std::size_t i_high = [&] { // min{i: y[i] = 1}
         const auto iter = std::find(y.begin(), y.end(), 1);
         return std::distance(y.begin(), iter);
@@ -531,6 +536,14 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
         else if (new_a_i_high > C)
             new_a_i_high = C;
 
+        const float B1 = b_high + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel(x[i_high], x[i_high]) +\
+                      y[i_low] * (new_a_i_low - alpha[i_low]) * kernel(x[i_high], x[i_low]) + B;
+
+        const float B2 = b_low + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel(x[i_high], x[i_low]) + \
+                      y[i_low] * (new_a_i_low - alpha[i_low]) * kernel(x[i_low], x[i_low]) + B;
+
+        B = (B1 + B2) / 2.f;
+
         ++iter;
     } while (b_low > b_high + 2 * tau && iter < max_iter);
 
@@ -550,7 +563,7 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
     }
 
     alpha_ = alpha;
-    b_ = (b_low + b_high) / 2;
+    b_ = B;
     x_ = x;
     kernel_ = kernel;
 }
@@ -577,24 +590,16 @@ std::vector<float> SVM::FunctionValue(const ObjectList &x) const
     std::vector<float> class_result;
     class_result.reserve(x.size());
 
+    std::vector<float> mult_result(x_.size(), 0.f);
+
     for (const auto &obj: x)
     {
-        float f = b_;
-        for (std::size_t i = 0; i < x_.size(); ++i)
-        {
-            const auto ay = alpha_y_[i];
-            const auto ker = kernel_(x_[i], obj);
-            const auto fi = ay * ker;
+        auto start_iter = thrust::make_transform_iterator(x_.begin(), [&]__host__ __device__ (auto x) { return kernel_(x, obj); });
 
-            f += fi;
+        thrust::transform(alpha_y_.begin(), alpha_y_.end(), start_iter, mult_result.begin(), [] __host__ __device__ (float x, float y) { return x * y; });
 
-            if (isnan(fi) || isnan(f))
-            {
-                LOG_INFO("Is NaN: x={}, obj={} ay={}, ker={}, fi={}, f={}", fmt::join(x_[i], ","),
-                    fmt::join(obj, ", "), ay, ker, fi, f);
-                throw std::runtime_error("Is NaN");
-            }
-        }
+        float f = thrust::reduce(mult_result.begin(), mult_result.end(), b_);
+
         class_result.push_back(f);
     }
     return class_result;
@@ -603,7 +608,8 @@ std::vector<float> SVM::FunctionValue(const ObjectList &x) const
 void EnsembleSvm::Train(const ObjectList &x, const std::vector<uint32_t> &y)
 {
     auto kernel_func = [=](const AttributeList &a1, const AttributeList &a2) -> float {
-        return KernelRbf(a1, a2, parameters_.gamma);
+        return KernelRbfThrust(a1, a2, parameters_.gamma);
+        // return KernelRbf(a1, a2, parameters_.gamma);
         // return KernelLinear(a1, a2);
     };
 
@@ -675,6 +681,7 @@ std::vector<uint32_t> EnsembleSvm::Classify(const ObjectList &x) const
 
 void EnsembleSvm::SetParameterSvm(std::size_t class_count, ParametersSVM parameters)
 {
+    svms_.clear();
     svms_.resize(class_count);
     parameters_ = parameters;
 }
@@ -995,12 +1002,14 @@ float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t
         fn += static_cast<float>(false_negative[class_id]);
     }
 
+    LOG_INFO("TP={}, FP={}, FN={}", tp, fp, fn);
+
     avg_precision /= static_cast<float>(class_count);
     avg_recall /= static_cast<float>(class_count);
 
     const float f1_score_macro = 2 * (avg_precision * avg_recall) / (avg_precision + avg_recall);
-    LOG_INFO("F1_score macro = {}", f1_score_macro);
-
     const float f1_score_micro = 2.f * tp / (2.f * tp + fp + fn);
-    return f1_score_micro;
+    LOG_INFO("F1_score macro = {}, F1_score micro = {}", f1_score_macro, f1_score_micro);
+
+    return f1_score_macro;
 }

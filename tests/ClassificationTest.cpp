@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include "catch2/benchmark/catch_benchmark.hpp"
 
 #include "Classification.hpp"
 
@@ -42,6 +43,9 @@ TEST_CASE("RBF kernel", "[Classification]")
 
     const auto y = KernelRbf(x1, x2, gamma);
     REQUIRE_THAT(y, Catch::Matchers::WithinRel(0.8872f, 0.0001f));
+    BENCHMARK("RBF kernel x1, x2") {
+        return KernelRbf(x1, x2, gamma);
+    };
 
 
     const AttributeList x3{0.1576, 0.9706, 0.9572, 0.4854, 0.8003};
