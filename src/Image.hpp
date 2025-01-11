@@ -1,6 +1,8 @@
 #ifndef HYPERSPECTRAL_IMAGE_HPP
 #define HYPERSPECTRAL_IMAGE_HPP
 
+#include <Classification.hpp>
+
 #include "Logger.hpp"
 #include "EnviHeader.hpp"
 #include "Components.hpp"
@@ -12,6 +14,7 @@
 #include <cusolverDn.h>
 #include <fstream>
 #include <concepts>
+#include <map>
 
 #include <cereal/types/vector.hpp>
 
@@ -303,6 +306,7 @@ private:
 class PatchSystem
 {
 public:
+    PatchSystem(Entity parent_img);
 
     [[nodiscard]] std::size_t GetPatchNumbers(ImageSize size);
 
@@ -310,10 +314,35 @@ public:
 
     [[nodiscard]] PatchData GeneratePatch(ImageSize size, std::size_t patch_idx);
 
-    Entity parent_img = 0;
+    const Entity parent_img;
 
 private:
     static constexpr std::size_t S = PatchData::S;
+    std::shared_ptr<float[]> img_data_{};
+    ImageSize size_{};
 };
+
+
+class PatchSystemMultiImage
+{
+public:
+    PatchSystemMultiImage(const std::vector<Entity> &images);
+
+    PatchSystem &GetPatchSystem(Entity img) { return map_.at(img); };
+
+private:
+    std::map<Entity, PatchSystem> map_{};
+};
+
+
+
+[[nodiscard]] std::vector<float> CudaSvmFunctionValue(const ObjectList &object_list, const SVM &svm, float gamma);
+
+
+/**
+* @brief HSI segmentation using Spectral Angle Mapper
+* @return mask - value of 0 - does not belong in class, 1 - belongs to class of central pixel
+*/
+[[nodiscard]] CpuMatrix SegmentationSAM(CpuMatrix img, float radian_threshold);
 
 #endif //HYPERSPECTRAL_IMAGE_HPP

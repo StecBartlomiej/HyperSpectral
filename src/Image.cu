@@ -868,6 +868,13 @@ float SumAllCuda(Matrix data)
     return thrust::reduce(c_vec.begin(), c_vec.end());
 }
 
+PatchSystem::PatchSystem(Entity parent_img): parent_img{parent_img}
+{
+    const auto [size, img_data] = GetImageData(parent_img);
+    size_ = size;
+    img_data_ = img_data;
+}
+
 std::size_t PatchSystem::GetPatchNumbers(ImageSize size)
 {
     return size.width * size.height;
@@ -877,17 +884,15 @@ CpuMatrix PatchSystem::GetPatchImage(int center_x, int center_y) const
 {
     static constexpr int margin = PatchData::S / 2;
 
-    const auto [size, img_data] = GetImageData(parent_img);
-
-    const std::size_t band_offset = size.width * size.height;
-    const std::size_t height_offset = size.width;
+    const std::size_t band_offset = size_.width * size_.height;
+    const std::size_t height_offset = size_.width;
 
     CpuMatrix result{
-        ImageSize{S, S, size.depth},
-        std::make_shared<float[]>(S * S * size.depth)
+        ImageSize{S, S, size_.depth},
+        std::make_shared<float[]>(S * S * size_.depth)
     };
 
-    for (int band = 0; band < size.depth; band++)
+    for (int band = 0; band < size_.depth; band++)
     {
         for (int y = static_cast<int>(center_y) - margin, iy=0; y < center_y + margin; ++y, ++iy)
         {
@@ -895,10 +900,10 @@ CpuMatrix PatchSystem::GetPatchImage(int center_x, int center_y) const
             {
                 float *value = result.data.get() + iy * S + ix + band * S * S;
 
-                if (x < 0 || x >= size.width || y < 0 || y >= size.height)
+                if (x < 0 || x >= size_.width || y < 0 || y >= size_.height)
                     *value = 0;
                 else
-                    *value = img_data[band * band_offset + y * height_offset + x];
+                    *value = img_data_[band * band_offset + y * height_offset + x];
             }
         }
     }
