@@ -20,6 +20,8 @@
     #define LOG_CRITICAL(...) Logger::console_->critical(__VA_ARGS__)
 #endif
 
+[[nodiscard]] std::shared_ptr<spdlog::logger> CreateLogger();
+
 
 void GlfwErrorCallback(int error, const char* description);
 
@@ -28,7 +30,7 @@ class Logger
 public:
     static void Init(spdlog::level::level_enum log_level);
 
-    inline static std::shared_ptr<spdlog::logger> console_ = spdlog::stdout_color_mt("console");
+    inline static std::shared_ptr<spdlog::logger> console_ = CreateLogger();
 };
 
 #endif //HYPERCPP_LOGGER_HPP
