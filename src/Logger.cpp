@@ -17,6 +17,7 @@ std::shared_ptr<spdlog::logger> CreateLogger() {
 
     spdlog::register_logger(spd_logger);
     spdlog::set_default_logger(spd_logger);
+    spdlog::flush_every(std::chrono::seconds(10));
 
     return spd_logger;
 }
