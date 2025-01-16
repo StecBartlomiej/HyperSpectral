@@ -286,12 +286,17 @@ public:
 private:
     void RunTrain(const std::vector<Entity> &entities_vec);
 
-    void RunTrainDisjoint(Entity image);
+    void RunTrainDisjoint(const std::vector<Entity> &image);
 
     [[nodiscard]] ClassificationData RunTrainPreprocessing(const std::vector<PatchData> &patch_positions,
      const std::vector<uint8_t> &patch_label, Entity image);
 
+    [[nodiscard]] ClassificationData RunTrainPreprocessing(const std::vector<PatchLabel> &patch_positions,
+         const std::vector<uint8_t> &patch_label, const std::vector<Entity> &images);
+
     [[nodiscard]] ObjectList RunPreprocessing(const std::vector<PatchData> &patch_positions, Entity image);
+
+    [[nodiscard]] ObjectList RunPreprocessing(const std::vector<PatchLabel> &patch_positions, const std::vector<Entity> &images);
 
     [[nodiscard]] std::vector<CpuMatrix> RunThresholding(const std::vector<Entity> &entities_vec);
 
@@ -333,6 +338,7 @@ private:
     std::vector<NormalizationData> normalization_data_{};
     std::string_view selected_model_;
     std::string selected_img_name_{};
+    float sam_threshold_ = 0.100f;
     float disjoint_data_split_ = 0.2f;
     float disjoint_validation_split_ = 0.5f;
     int k_folds_ = 1;
@@ -341,6 +347,7 @@ private:
     bool has_run_model_ = false;
     bool add_neighbour_bands_ = false;
     bool has_disjoint_sampling_ = false;
+    bool has_oversample_ = false;
 };
 
 
