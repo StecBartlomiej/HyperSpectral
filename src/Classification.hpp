@@ -12,6 +12,8 @@
 #include <string>
 #include <functional>
 
+inline uint32_t rng_seed = 12345;
+
 
 struct Node
 {
@@ -80,7 +82,6 @@ public:
 
     // void Print();
 
-private:
     [[nodiscard]] uint32_t ClassifyObject(const Node *root, const AttributeList &attributes);
 
     void TrainNode(Node *node, const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t depth);
@@ -225,6 +226,16 @@ struct PatchSplitData
     std::vector<uint8_t> test_classes;
 };
 
+struct PatchLabelSplitData
+{
+    std::vector<PatchLabel> training_data;
+    std::vector<uint8_t> training_classes;
+    std::vector<PatchLabel> test_data;
+    std::vector<uint8_t> test_classes;
+};
+
+
+
 [[nodiscard]] auto KFoldGeneration(const std::vector<uint32_t> &object_class, uint32_t class_count, uint32_t k_groups=10) -> std::vector<std::vector<std::size_t>>;
 
 [[nodsicard]] TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_class, std::size_t test_fold_idx);
@@ -233,9 +244,15 @@ struct PatchSplitData
 
 [[nodsicard]] PatchSplitData SplitData(const std::vector<PatchData> &object_list, const std::vector<uint8_t> &object_classes, std::size_t class_count, float split_ratio);
 
+[[nodsicard]] PatchLabelSplitData SplitData(const std::vector<PatchLabel> &object_list, const std::vector<uint8_t> &object_classes, std::size_t class_count, float split_ratio);
+
 void SaveClassificationResult(const std::vector<Entity> &data, const std::vector<uint32_t> &data_classes, std::ostream &out);
 
 
 [[nodiscard]] float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t> &result_class, uint32_t class_count);
+
+
+void RandomOversampling(ObjectList &object_list, std::vector<uint32_t> &result_class, std::size_t class_count);
+
 
 #endif //CLASSIFICATION_HPP

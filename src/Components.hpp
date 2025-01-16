@@ -34,6 +34,12 @@ struct PatchData
     constexpr static std::size_t S = 9;
 };
 
+struct PatchLabel
+{
+    PatchData patch;
+    Entity img;
+};
+
 [[nodiscard]] bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept;
 
 void RegisterComponents();

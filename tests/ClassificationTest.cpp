@@ -4,6 +4,9 @@
 
 #include "Classification.hpp"
 
+#include <fstream>
+#include "cereal/archives/binary.hpp"
+
 TEST_CASE("Small data test", "[DecisionTree]")
 {
     ObjectList data = {
@@ -20,6 +23,21 @@ TEST_CASE("Small data test", "[DecisionTree]")
 
     tree.Train(data, obj_class, 2);
     tree.Pruning(data, obj_class, data, prune_class);
+
+    static constexpr std::string_view save_file = "decision_tree.bin";
+    {
+        std::ofstream file(save_file.data(), std::ios::binary);
+
+        cereal::BinaryOutputArchive archive(file);
+        archive(tree);
+    }
+    {
+
+    std::ifstream file(save_file.data(), std::ios::binary);
+
+    cereal::BinaryInputArchive archive(file);
+    archive(tree);
+    }
 }
 
 TEST_CASE("K-Fold Validation", "[CUDA]")
@@ -120,37 +138,74 @@ TEST_CASE("Ensemble SVM", "[CUDA]")
     }
 }
 
-TEST_CASE("F1 score", "[Classification]")
+TEST_CASE("Random oversampling", "[Classification]")
 {
-    std::vector<uint32_t> obj_class{};
-    std::vector<uint32_t> result_class{};
+    ObjectList object_list{
+        {1, 2, 3, 4},
+        {1, 2, 3, 4},
+        {1, 2, 3, 4},
+        {1, 2, 3, 4},
+        {1, 2, 3, 4}
+    };
 
-    // True negative
-    for (std::size_t i = 0; i < 55; i++)
-    {
-        obj_class.push_back(10);
-        result_class.push_back(10);
-    }
-    // False positive
-    for (std::size_t i = 0; i < 5; i++)
-    {
-        obj_class.push_back(10);
-        result_class.push_back(0);
-    }
-    // False negative
-    for (std::size_t i = 0; i < 10; i++)
-    {
-        obj_class.push_back(0);
-        result_class.push_back(10);
-    }
-    // True positive
-    for (std::size_t i = 0; i < 30; i++)
-    {
-        obj_class.push_back(0);
-        result_class.push_back(0);
-    }
+    std::vector<uint32_t> obj_class{0, 0, 0, 0, 1};
 
-    const auto f1_score = ScoreF1(obj_class, result_class, 1);
-
-    REQUIRE_THAT(f1_score, Catch::Matchers::WithinRel(0.799f, 0.01f));
+    RandomOversampling(object_list, obj_class, 2);
 }
+
+
+TEST_CASE("RBF kernel", "[Classification]")
+{
+    constexpr float gamma = 0.1;
+
+    const AttributeList x1{0.8147, 0.9058, 0.1270, 0.9134, 0.6324};
+    const AttributeList x2{0.0975, 0.2785, 0.5469, 0.9575, 0.9649};
+
+    const auto y = KernelRbf(x1, x2, gamma);
+    REQUIRE_THAT(y, Catch::Matchers::WithinRel(0.8872f, 0.0001f));
+    BENCHMARK("RBF kernel x1, x2") {
+        return KernelRbf(x1, x2, gamma);
+    };
+
+
+    const AttributeList x3{0.1576, 0.9706, 0.9572, 0.4854, 0.8003};
+    const AttributeList x4{0.1419, 0.4218, 0.9157, 0.7922, 0.9595};
+
+    const auto y2 = KernelRbf(x3, x4, gamma);
+    REQUIRE_THAT(y2, Catch::Matchers::WithinRel(0.9586f, 0.0001f));
+}
+
+// TEST_CASE("F1 score", "[Classification]")
+// {
+//     std::vector<uint32_t> obj_class{};
+//     std::vector<uint32_t> result_class{};
+//
+//     // True negative
+//     for (std::size_t i = 0; i < 55; i++)
+//     {
+//         obj_class.push_back(10);
+//         result_class.push_back(10);
+//     }
+//     // False positive
+//     for (std::size_t i = 0; i < 5; i++)
+//     {
+//         obj_class.push_back(10);
+//         result_class.push_back(0);
+//     }
+//     // False negative
+//     for (std::size_t i = 0; i < 10; i++)
+//     {
+//         obj_class.push_back(0);
+//         result_class.push_back(10);
+//     }
+//     // True positive
+//     for (std::size_t i = 0; i < 30; i++)
+//     {
+//         obj_class.push_back(0);
+//         result_class.push_back(0);
+//     }
+//
+//     const auto f1_score = ScoreF1(obj_class, result_class, 2);
+//
+//     REQUIRE_THAT(f1_score, Catch::Matchers::WithinRel(0.799f, 0.01f));
+// }

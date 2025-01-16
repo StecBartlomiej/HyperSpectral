@@ -1113,6 +1113,71 @@ PatchSplitData SplitData(const std::vector<PatchData> &object_list, const std::v
     return data;
 }
 
+PatchLabelSplitData SplitData(const std::vector<PatchLabel> &object_list, const std::vector<uint8_t> &object_classes,
+    std::size_t class_count, float split_ratio)
+{
+   // std::random_device rd;
+    std::mt19937 g(rng_seed);
+
+    std::vector<uint32_t> grouped_count(class_count, 0);
+    std::vector<std::vector<std::size_t>> indexes{class_count};
+
+    for (std::size_t i = 0; i < object_classes.size(); ++i)
+    {
+        const auto class_id = object_classes[i];
+
+        indexes[class_id].push_back(i);
+
+        assert(class_id < class_count);
+        grouped_count[class_id] += 1;
+    }
+
+    for (std::size_t i = 0; i < class_count; ++i)
+    {
+        std::ranges::shuffle(indexes[i], g);
+    }
+
+    PatchLabelSplitData data{};
+
+    std::vector<std::size_t> train_idx{};
+    for (const auto &curr_index : indexes)
+    {
+        const std::size_t end_idx =  std::round(curr_index.size() * split_ratio);
+
+        for (auto k = 0; k < end_idx; ++k)
+        {
+            const auto idx = curr_index[k];
+            train_idx.push_back(idx);
+        }
+    }
+    std::ranges::shuffle(train_idx, g);
+    for (auto idx : train_idx)
+    {
+        data.training_data.push_back(object_list[idx]);
+        data.training_classes.push_back(object_classes[idx]);
+    }
+
+    std::vector<std::size_t> test_idx{};
+    for (const auto& curr_index : indexes)
+    {
+        const auto end_idx =  std::round(curr_index.size() * split_ratio);
+
+        for (std::size_t k = end_idx; k < curr_index.size(); ++k)
+        {
+            const auto idx = curr_index[k];
+            test_idx.push_back(idx);
+        }
+    }
+    std::ranges::shuffle(test_idx, g);
+    for (auto idx : test_idx)
+    {
+        data.test_data.push_back(object_list[idx]);
+        data.test_classes.push_back(object_classes[idx]);
+    }
+
+    return data;
+}
+
 
 void SaveClassificationResult(const std::vector<Entity> &data, const std::vector<uint32_t> &data_classes, std::ostream &out)
 {
@@ -1141,6 +1206,23 @@ float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t
 
     std::vector<uint32_t> class_size(class_count, 0);
 
+    // Confusion Matrix
+    {
+        std::vector<std::vector<uint32_t>> confusion_matrix(class_count, std::vector<uint32_t>(class_count, 0));
+
+        for (const auto idx : std::views::iota(0u, obj_class.size()))
+        {
+            confusion_matrix[obj_class[idx]][result_class[idx]] += 1;
+        }
+
+        LOG_INFO("=========START CONFUSION MATRIX=========");
+        for (std::size_t i = 0; i < class_count; ++i)
+        {
+            LOG_INFO("{}: {}", i, fmt::join(confusion_matrix[i], " | "));
+        }
+        LOG_INFO("=========END CONFUSION MATRIX=========");
+    }
+
     for (uint32_t curr_class = 0; curr_class < class_count; ++curr_class)
     {
         for (const auto idx : std::views::iota(0u, obj_class.size()))
@@ -1164,6 +1246,11 @@ float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t
             }
         }
     }
+    for (std::size_t class_id = 0; class_id < class_count; ++class_id)
+    {
+        LOG_INFO("Class id={}, TP={}, FP={}, FN={}", class_id, true_positive[class_id],
+            false_positive[class_id], false_negative[class_id]);
+    }
 
     float avg_precision = 0.f;
     float avg_recall = 0.f;
@@ -1181,7 +1268,7 @@ float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t
         fn += static_cast<float>(false_negative[class_id]);
     }
 
-    LOG_INFO("TP={}, FP={}, FN={}", tp, fp, fn);
+    LOG_INFO("SUM: TP={}, FP={}, FN={}", tp, fp, fn);
 
     avg_precision /= static_cast<float>(class_count);
     avg_recall /= static_cast<float>(class_count);
@@ -1191,4 +1278,78 @@ float ScoreF1(const std::vector<uint32_t> &obj_class, const std::vector<uint32_t
     LOG_INFO("F1_score macro = {}, F1_score micro = {}", f1_score_macro, f1_score_micro);
 
     return f1_score_macro;
+}
+
+void RandomOversampling(ObjectList &object_list, std::vector<uint32_t> &result_class, std::size_t class_count)
+{
+    std::map<uint32_t, std::vector<std::size_t>> class_to_idx;
+    // std::random_device rd;  // a seed source for the random number engine
+    std::mt19937 gen(rng_seed);
+
+    for (const auto idx : std::views::iota(0u, result_class.size()))
+    {
+        const auto curr_class = result_class[idx];
+        class_to_idx[curr_class].push_back(idx);
+    }
+
+    std::size_t min_elements = object_list.size() + 1;
+    std::size_t min_class = 0;
+    std::size_t max_elements = 0;
+    for (std::size_t class_id = 0; class_id < class_count; ++class_id)
+    {
+        if (class_to_idx[class_id].size() > max_elements)
+        {
+            max_elements = class_to_idx[class_id].size();
+        }
+        if (class_to_idx[class_id].size() < min_elements)
+        {
+            min_elements = class_to_idx[class_id].size();
+            min_class = class_id;
+        }
+    }
+
+    if (min_elements * 2 < max_elements)
+    {
+        const int factor = 3;
+        const auto curr_size = class_to_idx[min_class].size();
+
+        LOG_INFO("Increasing class {} by {} samples, max samples={}, current_size={}", min_class, (max_elements / 3) - curr_size, max_elements, curr_size);
+        std::uniform_int<> dist(0, curr_size - 1);
+
+        for (auto i = curr_size; i < curr_size * factor; ++i)
+        {
+            const auto random_idx = dist(gen);
+            const auto obj_idx = class_to_idx[min_class][random_idx];
+
+            object_list.push_back(object_list[obj_idx]);
+            result_class.push_back(result_class[obj_idx]);
+        }
+    }
+
+
+
+    // for (std::size_t class_id = 0; class_id < class_count; ++class_id)
+    // {
+    //     if (class_id == max_class)
+    //         continue;
+    //
+    //
+    //     const auto curr_size = class_to_idx[class_id].size();
+    //     if (curr_size > static_cast<std::size_t>(max_elements / 3))
+    //         continue;
+    //
+    //     LOG_INFO("Increasing class {} by {} samples, max samples={}, current_size={}", class_id, (max_elements / 3) - curr_size, max_elements, curr_size);
+    //
+    //     std::uniform_int<> dist(0, curr_size - 1);
+    //
+    //     for (auto i = curr_size; i < static_cast<std::size_t>(max_elements / 3); ++i)
+    //     {
+    //         const auto random_idx = dist(gen);
+    //         const auto obj_idx = class_to_idx[class_id][random_idx];
+    //
+    //         object_list.push_back(object_list[obj_idx]);
+    //         result_class.push_back(result_class[obj_idx]);
+    //     }
+    // }
+    //
 }
