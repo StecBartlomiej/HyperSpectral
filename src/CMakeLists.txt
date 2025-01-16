@@ -7,7 +7,7 @@ set(SOURCE_FILES
         EntityComponentSystem.cpp
         Components.cpp
         Image.cu
-        Classification.cpp
+        Classification.cu
 )
 
 set(GUI_SOURCE_FILES
@@ -20,7 +20,7 @@ target_include_directories(lib_hypercpp PUBLIC "."  "${CMAKE_CUDA_TOOLKIT_INCLUD
 target_link_libraries(lib_hypercpp PUBLIC spdlog::spdlog cublas cusolver)
 set_target_properties(lib_hypercpp PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 target_compile_options(lib_hypercpp PRIVATE $<$<COMPILE_LANGUAGE:CUDA>: --extended-lambda>)
-target_compile_definitions(lib_hypercpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:COMPILING_CXX>:/arch:AVX512)
+target_compile_definitions(lib_hypercpp PRIVATE $<$<COMPILE_LANGUAGE:CXX>:COMPILING_CXX>:/arch:AVX512 /NODEFAULTLIB:LIBCMT /MTd /O2 /GL /LTCG)
 
 
 add_library(lib_gui STATIC ${GUI_SOURCE_FILES})

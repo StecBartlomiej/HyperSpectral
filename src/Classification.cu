@@ -670,25 +670,33 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
         alpha[i_low] = new_a_i_low;
         alpha[i_high] = new_a_i_high;
 
-        ni = kernel(x[i_high], x[i_high]) + kernel(x[i_low], x[i_low]) - 2 * kernel(x[i_low], x[i_high]);
+
+        const auto kernel_x_h = kernel(x[i_high], x[i_high]);
+        const auto kernel_x_l = kernel(x[i_low], x[i_low]);
+        const auto kernel_x_hl = kernel(x[i_high], x[i_low]);
+
+
+        ni = kernel_x_h + kernel_x_l - 2 * kernel_x_hl;
+        // ni = kernel(x[i_high], x[i_high]) + kernel(x[i_low], x[i_low]) - 2 * kernel(x[i_low], x[i_high]);
+
         new_a_i_low = alpha[i_low] + static_cast<float>(y[i_low]) * ((b_high - b_low) / ni);
         new_a_i_high = alpha[i_high] + static_cast<float>(y[i_low]) * static_cast<float>(y[i_high]) * (alpha[i_low] - new_a_i_low);
 
-        if (new_a_i_low  < 0)
+        if (new_a_i_low  < eps)
             new_a_i_low = 0;
-        else if (new_a_i_low > C)
+        else if (new_a_i_low > C - eps)
             new_a_i_low = C;
 
-        if (new_a_i_high < 0)
+        if (new_a_i_high < eps)
             new_a_i_high = 0;
-        else if (new_a_i_high > C)
+        else if (new_a_i_high > C - eps)
             new_a_i_high = C;
 
-        const float B1 = b_high + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel(x[i_high], x[i_high]) +\
-                      y[i_low] * (new_a_i_low - alpha[i_low]) * kernel(x[i_high], x[i_low]) + B;
+        const float B1 = b_high + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel_x_h +\
+                      y[i_low] * (new_a_i_low - alpha[i_low]) * kernel_x_hl + B;
 
-        const float B2 = b_low + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel(x[i_high], x[i_low]) + \
-                      y[i_low] * (new_a_i_low - alpha[i_low]) * kernel(x[i_low], x[i_low]) + B;
+        const float B2 = b_low + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel_x_hl + \
+                      y[i_low] * (new_a_i_low - alpha[i_low]) * kernel_x_l + B;
 
         B = (B1 + B2) / 2.f;
 
@@ -711,7 +719,7 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
     }
 
     alpha_ = alpha;
-    b_ = B;
+    b_ = -B;
     x_ = x;
     kernel_ = kernel;
 }
@@ -738,18 +746,19 @@ std::vector<float> SVM::FunctionValue(const ObjectList &x) const
     std::vector<float> class_result;
     class_result.reserve(x.size());
 
-    std::vector<float> mult_result(x_.size(), 0.f);
+    thrust::host_vector<float> mult_result(x_.size(), 0.f);
 
-    for (const auto &obj: x)
+    for (const auto &obj : x)
     {
-        auto start_iter = thrust::make_transform_iterator(x_.begin(), [&]__host__ __device__ (auto x) { return kernel_(x, obj); });
+        auto start_iter = thrust::make_transform_iterator(x_.begin(), [&]__host__(auto x) { return kernel_(x, obj); });
 
-        thrust::transform(alpha_y_.begin(), alpha_y_.end(), start_iter, mult_result.begin(), [] __host__ __device__ (float x, float y) { return x * y; });
+        thrust::transform(alpha_y_.begin(), alpha_y_.end(), start_iter, mult_result.begin(), [] __host__ (float x, float y) { return x * y; });
 
-        float f = thrust::reduce(mult_result.begin(), mult_result.end(), b_);
+        float sum = thrust::reduce(mult_result.begin(), mult_result.end(), b_);
+        class_result.push_back(sum);
+    };
 
-        class_result.push_back(f);
-    }
+
     return class_result;
 }
 
@@ -772,9 +781,10 @@ void EnsembleSvm::Train(const ObjectList &x, const std::vector<uint32_t> &y)
     LOG_INFO("SVM parameters: gamma={}, max_iter={}, C={}, tau={}",
         parameters_.gamma, parameters_.max_iter, parameters_.C, parameters_.tau);
 
+    std::vector<std::future<void>> result_svm;
+
     for (const std::size_t i : std::views::iota(0u, svms_.size()))
     {
-        LOG_INFO("Training {} svm", i);
         auto &svm = svms_[i];
 
         assert(class_to_pos.contains(i));
@@ -784,9 +794,16 @@ void EnsembleSvm::Train(const ObjectList &x, const std::vector<uint32_t> &y)
         {
             obj_class[idx] = 1;
         }
-        svm.Train(x, obj_class, kernel_func, parameters_.C, parameters_.tau, parameters_.max_iter);
+        // svm.Train(x, obj_class, kernel_func, parameters_.C, parameters_.tau, parameters_.max_iter);
+        result_svm.push_back(std::async(std::launch::async, &SVM::Train, &svm, x, obj_class, kernel_func, parameters_.C, parameters_.tau, parameters_.max_iter));
     }
 
+    LOG_INFO("Waiting for training threads");
+    for (const std::size_t i : std::views::iota(0u, svms_.size()))
+    {
+        result_svm[i].wait();
+    }
+    LOG_INFO("Training done");
 }
 
 std::vector<uint32_t> EnsembleSvm::Classify(const ObjectList &x) const
@@ -794,13 +811,27 @@ std::vector<uint32_t> EnsembleSvm::Classify(const ObjectList &x) const
     std::vector<std::vector<float>> class_result;
     class_result.reserve(svms_.size());
 
+    std::vector<std::future<std::vector<float>>> result_svm;
+
     LOG_INFO("Start caluclating function values");
     for (const std::size_t i : std::views::iota(0u, svms_.size()))
     {
         LOG_INFO("svm={}", i);
-        const auto &svm = svms_[i];
 
-        class_result.push_back(svm.FunctionValue(x));
+        result_svm.emplace_back(std::async(std::launch::async, &SVM::FunctionValue, &svms_[i], x));
+    }
+
+
+    LOG_INFO("Waiting on threads");
+    for (std::size_t i = 0; i < svms_.size(); ++i)
+    {
+        result_svm[i].wait();
+        LOG_INFO("SVM {} finished", i);
+    }
+
+    for (std::size_t i = 0; i < svms_.size(); ++i)
+    {
+        class_result.push_back(result_svm[i].get());
     }
     LOG_INFO("Calculated function values, start choosing best");
 
@@ -855,8 +886,8 @@ std::vector<std::vector<std::size_t>> KFoldGeneration(const std::vector<uint32_t
 
     std::size_t objects_count = object_class.size();
 
-    std::random_device rd;
-    std::mt19937 g(rd());
+    // std::random_device rd;
+    std::mt19937 g(rng_seed);
 
     std::vector<std::vector<std::size_t>> object_fold_idx(k_groups);
 
@@ -955,8 +986,8 @@ TrainingTestData GetFold(const std::vector<std::vector<std::size_t>> &folds, con
 TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::vector<uint32_t> &object_classes, std::size_t class_count,
     float split_ratio)
 {
-    std::random_device rd;
-    std::mt19937 g(rd());
+    // std::random_device rd;
+    std::mt19937 g(rng_seed);
 
     std::vector<uint32_t> grouped_count(class_count, 0);
     std::vector<std::vector<std::size_t>> indexes{class_count};
@@ -1020,8 +1051,8 @@ TrainingTestData SplitData(const std::vector<Entity> &object_list, const std::ve
 PatchSplitData SplitData(const std::vector<PatchData> &object_list, const std::vector<uint8_t> &object_classes,
     std::size_t class_count, float split_ratio)
 {
-   std::random_device rd;
-    std::mt19937 g(rd());
+   // std::random_device rd;
+    std::mt19937 g(rng_seed);
 
     std::vector<uint32_t> grouped_count(class_count, 0);
     std::vector<std::vector<std::size_t>> indexes{class_count};
