@@ -14,14 +14,50 @@
 #include <Image.hpp>
 #include <map>
 #include <queue>
+#include <vector>
 #include <cereal/archives/json.hpp>
 #include <cereal/types/map.hpp>
-#include<ranges>
+#include <ranges>
+#include <future>
+
+#include <thrust/reduce.h>
+#include <thrust/transform.h>
+#include <thrust/extrema.h>
 #include <thrust/device_vector.h>
-#include <thrust/system/cuda/config.h>
+#include <thrust/count.h>
+#include <thrust/execution_policy.h>
+#include <thrust/host_vector.h>
+#include <thrust/iterator/zip_iterator.h>
+#include <thrust/iterator/transform_iterator.h>
+#include <thrust/tuple.h>
+#include <thrust/device_ptr.h>
+#include <thrust/device_malloc.h>
+#include <thrust/device_free.h>
+#include <thrust/transform_reduce.h>
+
+#include <spdlog/fmt/fmt.h>
 
 extern Coordinator coordinator;
 
+
+SavedNode ToSavedNode(const Node *node)
+{
+    return SavedNode{
+        .threshold = node->threshold,
+        .attribute_idx = node->attribute_idx,
+        .is_leaf = IsLeaf(node)
+    };
+}
+
+Node FromSavedNode(const SavedNode *node)
+{
+    return Node{
+        .attribute_idx = node->attribute_idx,
+        .left = nullptr,
+        .right = nullptr,
+        .threshold = node->threshold,
+    };
+}
 
 bool IsLeaf(const Node *node) noexcept
 {
@@ -46,6 +82,46 @@ std::vector<float> GetSortedAttributeList(const ObjectList &object_list, std::si
     std::ranges::sort(attribute_values);
 
     return attribute_values;
+}
+
+std::vector<float> GetSortedAttributeList(const ObjectList &object_list, const std::vector<uint32_t> &obj_class,
+    std::size_t attribute_idx)
+{
+    // std::vector<float> attribute_values{};
+    // attribute_values.reserve(object_list.size());
+    //
+    // for (const auto& obj_iter: object_list)
+    // {
+    //     attribute_values.push_back(obj_iter[attribute_idx]);
+    // }
+    // std::ranges::sort(attribute_values);
+    //
+    // return attribute_values;
+
+    std::vector<std::size_t> value_idx(object_list.size(), 0.f);
+    std::iota(value_idx.begin(), value_idx.end(), 0);
+
+    std::sort(value_idx.begin(), value_idx.end(), [&](auto i1, auto i2) {
+        return object_list[i1][attribute_idx] < object_list[i2][attribute_idx];
+    });
+
+    std::vector<float> threshold_values{};
+
+    for (std::size_t i = 1; i < value_idx.size(); ++i)
+    {
+        if (obj_class[i] == obj_class[i - 1])
+            continue;
+
+        const auto v1 = object_list[i - 1][attribute_idx];
+        const auto v2 = object_list[i][attribute_idx];
+
+        const auto threshold = (v1 + v2) / 2.f;
+        threshold_values.push_back(threshold);
+    }
+    const auto last = std::ranges::unique(threshold_values).begin();
+    threshold_values.erase(last, threshold_values.end());
+
+    return threshold_values;
 }
 
 Tree::~Tree()
@@ -182,13 +258,13 @@ void Tree::Pruning(const ObjectList &train_list, const std::vector<uint32_t> &tr
         auto *curr_node = node_stack.top();
         node_stack.pop();
 
-
         Node node_copy = *curr_node;
 
         SwitchToLeaf(curr_node);
         const auto new_error = GetValidationError();
-        if (new_error <=  base_error)
+        if (new_error <= base_error)
         {
+            LOG_INFO("Change current branch to leaf, old error={}, new error={}", base_error, new_error);
             base_error = new_error;
             FreeNodes(node_copy.left);
             FreeNodes(node_copy.right);
@@ -250,43 +326,56 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
     TreeTest best_test{std::numeric_limits<float>::min(), 0, 0};
     std::vector<std::size_t> D(class_count_, 0);
 
+    // Calculate objects in class
+    for (std::size_t class_idx = 0; class_idx < class_count_; ++class_idx)
+    {
+        D[class_idx] = thrust::count_if(object_classes.begin(), object_classes.end(),
+            [class_idx] __host__ (uint32_t curr_clas) {
+                return curr_clas == class_idx;
+        });
+    }
+
+    thrust::device_vector<uint32_t> class_count(object_classes.begin(), object_classes.end());
+
+
     for (std::size_t attr_idx = 0; attr_idx < attributes_count_; ++attr_idx)
     {
-
-        auto attribute_values = GetSortedAttributeList(object_list, attr_idx);
-
-        // Iterate over all possible thresholds
-        for (std::size_t threshold_idx = 1; threshold_idx < attribute_values.size(); ++threshold_idx)
+        thrust::device_vector<float> obj_attr_value{};
+        obj_attr_value.reserve(object_list.size());
+        for (const auto &obj: object_list)
         {
-            // Threshold as mean of adjacent values in sorted array
-            const float threshold = (attribute_values[threshold_idx - 1] + attribute_values[threshold_idx]) / 2.f;
+            obj_attr_value.push_back(obj[attr_idx]);
+        }
 
-            /// Split to d1, d2, D, calclate infromation gain
+        auto zip_start = thrust::make_zip_iterator(thrust::make_tuple(obj_attr_value.begin(), class_count.begin()));
+        auto zip_end = thrust::make_zip_iterator(thrust::make_tuple(obj_attr_value.end(), class_count.end()));
+
+
+        const auto threshold_values = GetSortedAttributeList(object_list, object_classes, attr_idx);
+
+        for (const auto threshold : threshold_values)
+        {
             std::vector<std::size_t> d_yes(class_count_, 0);
             std::vector<std::size_t> d_no(class_count_, 0);
-            std::vector<std::size_t> D(class_count_, 0);
 
-            std::size_t count_d_yes = 0, count_d_no = 0;
-            const std::size_t count_D = object_classes.size();
-
-            for (std::size_t obj_idx = 0; obj_idx < object_list.size(); ++obj_idx)
+            for (auto class_idx = 0; class_idx < class_count_; ++class_idx)
             {
-                const auto &attr_list = object_list[obj_idx];
-                const auto curr_class = object_classes[obj_idx];
-                assert(curr_class < class_count_);
+                d_no[class_idx] = thrust::count_if(thrust::device,
+                    zip_start,
+                    zip_end,
+                    [class_idx, threshold] __device__ (const thrust::tuple<float, uint32_t> &tuple){
+                        const float value = thrust::get<0>(tuple);
+                        const uint32_t curr_class = thrust::get<1>(tuple);
+                        return curr_class == class_idx && value <= threshold;
+                        }
+                    );
 
-                D[curr_class] += 1;
-                if (attr_list[attr_idx] <= threshold)
-                {
-                    d_no[curr_class] += 1;
-                    count_d_no += 1;
-                }
-                else
-                {
-                    d_yes[curr_class] += 1;
-                    count_d_yes += 1;
-                }
+                d_yes[class_idx] = D[class_idx] - d_no[class_idx];
             }
+
+            const std::size_t count_D = object_classes.size();
+            const std::size_t count_d_yes = std::accumulate(d_yes.begin(), d_yes.end(), 0llu);
+            const std::size_t count_d_no = std::accumulate(d_no.begin(), d_no.end(), 0llu);
 
             float info_D = 0;
             float info_d_yes = 0;
@@ -309,7 +398,8 @@ void Tree::TrainNode(Node *root, const ObjectList &object_list, const std::vecto
             float d2_d = static_cast<float>(count_d_no) / static_cast<float>(count_D);
 
             float gain_d1_d2 = (d1_d * info_d_yes) + (d2_d * info_d_no);
-            float info_gain = info_D - gain_d1_d2;
+            float number_threshold = log2(static_cast<float>(threshold_values.size())) / static_cast<float>(count_D);
+            float info_gain = info_D - gain_d1_d2 - number_threshold;
 
             float split_info = -d1_d * log2(d1_d) - d2_d * log2(d2_d);
             float gain_ration = info_gain / split_info;
@@ -398,6 +488,64 @@ void Tree::PrintNode(const std::string &prefix, const Node *node, bool isLeft)
     {
         PrintNode(prefix + (isLeft ? "│   " : "    "), node->right, false);
     }
+}
+
+
+void Tree::Reconstruct(const std::vector<SavedNode> &nodes)
+{
+    FreeNodes(root);
+
+    root = new Node();
+
+    std::stack<Node *> stack;
+    stack.push(root);
+
+    std::size_t vec_idx = 0;
+
+    while (!stack.empty())
+    {
+        Node *node = stack.top();
+        stack.pop();
+
+        *node = FromSavedNode(nodes.data() + vec_idx);
+
+        if (!nodes[vec_idx].is_leaf)
+        {
+            node->left = new Node();
+            node->right = new Node();
+
+            stack.push(node->right);
+            stack.push(node->left);
+        }
+        ++vec_idx;
+    }
+
+}
+
+std::vector<SavedNode> Tree::GetSavedNodes() const
+{
+    std::vector<SavedNode> result;
+    std::stack<Node*> stack;
+    stack.push(root);
+
+    while (!stack.empty())
+    {
+        Node *node = stack.top();
+        stack.pop();
+
+        result.push_back(ToSavedNode(node));
+
+        if (node->right)
+        {
+            stack.push(node->right);
+        }
+        if (node->left)
+        {
+            stack.push(node->left);
+        }
+
+    }
+    return result;
 }
 
 void FreeNodes(Node *node)

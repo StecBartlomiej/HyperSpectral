@@ -21,6 +21,27 @@ struct Node
     float threshold;
 };
 
+struct SavedNode
+{
+    float threshold;
+    std::size_t attribute_idx;
+    bool is_leaf;
+
+    template<class Archive>
+    void serialize(Archive & archive)
+    {
+        archive(
+            threshold,
+            attribute_idx,
+            is_leaf
+            );
+    }
+};
+
+SavedNode ToSavedNode(const Node *node);
+
+Node FromSavedNode(const SavedNode *node);
+
 [[nodsicard]] bool IsLeaf(const Node *node) noexcept;
 
 using AttributeList = std::vector<float>;
@@ -29,6 +50,10 @@ using ObjectList = std::vector<AttributeList>;
 [[nodiscard]] AttributeList GetAttributes(const ObjectList &object_list, std::size_t object_idx);
 
 [[nodiscard]] std::vector<float> GetSortedAttributeList(const ObjectList &object_list, std::size_t attribute_idx);
+
+
+[[nodiscard]] std::vector<float> GetSortedAttributeList(const ObjectList &object_list, const std::vector<uint32_t> &obj_class,
+    std::size_t attribute_idx);
 
 struct TreeTest
 {
@@ -61,6 +86,26 @@ private:
     void TrainNode(Node *node, const ObjectList &object_list, const std::vector<uint32_t> &object_classes, std::size_t depth);
 
     void PrintNode(const std::string &prefix, const Node *node, bool isLeft);
+
+    template<class Archive>
+    void save(Archive & archive) const
+    {
+        auto vec = GetSavedNodes();
+
+        archive(vec);
+    }
+
+    template<class Archive>
+    void load(Archive & archive)
+    {
+        std::vector<SavedNode> vec{};
+        archive(vec);
+
+        Reconstruct(vec);
+    }
+    void Reconstruct(const std::vector<SavedNode> &nodes);
+
+    [[nodiscard]] std::vector<SavedNode> GetSavedNodes() const;
 
 private:
     Node *root{};
