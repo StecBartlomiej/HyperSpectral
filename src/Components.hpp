@@ -1,6 +1,7 @@
 #ifndef COMPONENTS_HPP
 #define COMPONENTS_HPP
 
+#include <EntityComponentSystem.hpp>
 #include <filesystem>
 #include <cereal/cereal.hpp>
 
