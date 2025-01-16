@@ -1,6 +1,7 @@
 #include <iostream>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include "catch2/benchmark/catch_benchmark.hpp"
 
 #include "Image.hpp"
 
@@ -645,3 +646,49 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
         REQUIRE(cpu_mat.data[i] == expected_img[i]);
     }
 }
+
+TEST_CASE("Segmentaion SAM", "[CUDA]")
+{
+    std::shared_ptr<float[]>img(new float[]{
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+        // Band 2
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+         1,  2,  3,  4,  5,  6,  7,  8,  9,
+    });
+    CpuMatrix mat{ImageSize(9, 9, 2), img};
+
+    auto result = SegmentationSAM(mat, 0.003);
+}
+
+
+
+TEST_CASE("RBF kernel thrust", "[Classification]")
+{
+    constexpr float gamma = 0.1;
+
+    const AttributeList x1{0.8147, 0.9058, 0.1270, 0.9134, 0.6324};
+    const AttributeList x2{0.0975, 0.2785, 0.5469, 0.9575, 0.9649};
+
+    const auto y = KernelRbfThrust(x1, x2, gamma);
+    REQUIRE_THAT(y, Catch::Matchers::WithinRel(0.8872f, 0.0001f));
+
+    BENCHMARK("RBF kernel x1, x2") {
+        return KernelRbfThrust(x1, x2, gamma);
+    };
+}
+

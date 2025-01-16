@@ -210,6 +210,7 @@ __global__ void PieceWiseDivision(Matrix m, float divisor);
  */
 __global__ void MatMulTrans(Matrix img, Matrix result);
 
+[[nodiscard]] CpuMatrix MultiplyMask(CpuMatrix threshold_mask, CpuMatrix segmentation_mask);
 
 [[nodiscard]] float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, float gamma);
 

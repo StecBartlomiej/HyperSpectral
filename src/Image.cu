@@ -929,11 +929,216 @@ float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, const fl
     return std::exp(-gamma * l2_power);
 }
 
+
+CpuMatrix MultiplyMask(CpuMatrix threshold_mask, CpuMatrix segmentation_mask)
 {
-    static constexpr std::size_t margin = PatchData::S / 2;
+    CpuMatrix mask{
+        .size = threshold_mask.size,
+        .data = std::make_shared<float[]>(threshold_mask.size.width * threshold_mask.size.height)
+    };
 
-    std::size_t dy = patch_idx / (size.width);
-    std::size_t dx = patch_idx % (size.width);
-
-    return PatchData{dx, dy} ;
+    for (auto i = 0; i < mask.size.width * mask.size.height; ++i)
+    {
+        if (threshold_mask.data[i] == 1.f && segmentation_mask.data[i] ==  1.f)
+            mask.data[i] = 1.f;
+        else
+            mask.data[i] = 0.f;
+    }
+    return std::move(mask);
 }
+
+__global__ void CudaSAM(Matrix img, std::size_t i, std::size_t j, float *pi_arr, float *pj_arr, float *pij_arr)
+{
+    const auto band = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (band < img.bands_height)
+    {
+        const float pi = img.data[i + band * img.pixels_width];
+        const float pj = img.data[j + band * img.pixels_width];
+
+        pi_arr[band] = pi * pi;
+        pj_arr[band] = pj * pj;
+        pij_arr[band] = pi * pj;
+    }
+}
+
+
+CpuMatrix SegmentationSAM(CpuMatrix img, float radian_threshold)
+{
+    Matrix m_img = img.GetMatrix();
+
+    // if (m_img.bands_height > 1024)
+    // {
+    //     LOG_ERROR("Too much spectral bands");
+    //     throw std::runtime_error("Too much spectral bands");
+    // }
+
+    CudaAssert(cudaMalloc(&m_img.data, m_img.pixels_width * m_img.bands_height * sizeof(float)));
+    CudaAssert(cudaMemcpy(m_img.data, img.data.get(), m_img.pixels_width * m_img.bands_height * sizeof(float), cudaMemcpyHostToDevice));
+
+    float *pi_arr = nullptr;
+    float *pj_arr = nullptr;
+    float *pij_arr = nullptr;
+
+    CudaAssert(cudaMalloc(&pi_arr, m_img.bands_height * sizeof(float)));
+    CudaAssert(cudaMalloc(&pj_arr, m_img.bands_height * sizeof(float)));
+    CudaAssert(cudaMalloc(&pij_arr, m_img.bands_height * sizeof(float)));
+
+    // Central pixel is J
+    const std::size_t center_x = img.size.width / 2;
+    const std::size_t center_y = img.size.height / 2;
+    const std::size_t j = center_y * img.size.width + center_x;
+
+    std::vector<float> pixel_sam(m_img.pixels_width, 0.f);
+
+    for (std::size_t i = 0; i < m_img.pixels_width; ++i)
+    {
+        if (i == j)
+            continue;
+
+        CudaSAM<<<(m_img.bands_height / 1024) + 1, 1024>>>(m_img, i, j, pi_arr, pj_arr, pij_arr);
+        // cudaDeviceSynchronize();
+
+        const float sum_pi = thrust::reduce(thrust::device, pi_arr, pi_arr + m_img.bands_height , 0.f);
+        const float sum_pj = thrust::reduce(thrust::device, pj_arr, pj_arr + m_img.bands_height , 0.f);
+        const float sum_pij = thrust::reduce(thrust::device, pij_arr, pij_arr + m_img.bands_height , 0.f);
+
+        const float sam_value = std::acos(sum_pij / std::sqrt(sum_pi * sum_pj));
+
+        pixel_sam[i] = sam_value;
+    }
+    // LOG_INFO("Radian sam: {}", fmt::join(pixel_sam, ","));
+
+    float *mask_data = new float[m_img.pixels_width];
+
+    CpuMatrix mask{
+        .size = ImageSize{.width = img.size.width, .height = img.size.height, .depth = 1},
+        .data = std::shared_ptr<float[]>(mask_data)
+    };
+
+    for (std::size_t i = 0; i < mask.size.width * mask.size.height; ++i)
+    {
+        if (i == j)
+            mask.data[i] = 1;
+
+        if (pixel_sam[i] <= radian_threshold)
+        {
+            mask.data[i] = 1;
+        }
+        else
+        {
+            mask.data[i] = 0;
+        }
+    }
+    cudaFree(pi_arr);
+    cudaFree(pj_arr);
+    cudaFree(pij_arr);
+    cudaFree(m_img.data);
+
+    return std::move(mask);
+}
+
+
+
+__device__ float CudaRBF(float *x1, float *x2, std::size_t size)
+{
+    float sum = 0;
+    for (std::size_t i = 0; i < size; ++i)
+    {
+        sum += powf(x1[i] - x2[i], 2);
+    }
+    return sum;
+}
+
+
+__global__ void FunctionValueSVM(float *alpha_y, float *x, float *f, float *data, float gamma, std::size_t size, std::size_t obj_size)
+{
+    const auto y = blockIdx.x * blockDim.x + threadIdx.x;
+    const auto i = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // TODO add __shared for alpha, x
+
+    if (i < size && y < obj_size)
+    {
+        const auto offset = y * size;
+        f[i + offset] = alpha_y[i] * CudaRBF(data + i, x + i, gamma);
+    }
+}
+
+
+__global__ void GenerateKey(int *key, std::size_t obj_size, std::size_t size)
+{
+    const auto x = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (x < size * obj_size)
+    {
+        const int value = ((x / size) % 2 == 0) ? 1 : 0;
+        key[x] = value;
+    }
+}
+
+PatchSystemMultiImage::PatchSystemMultiImage(const std::vector<Entity> &images)
+{
+    for (auto img : images)
+    {
+        map_.emplace(img, PatchSystem{img});
+    }
+}
+
+//
+// std::vector<float> CudaSvmFunctionValue(const ObjectList &object_list, const SVM &svm, float gamma)
+// {
+//     float *c_alpha_y = nullptr;
+//     float *c_x = nullptr;
+//     float *c_object = nullptr;
+//     float *c_f_value = nullptr;
+//
+//     const std::size_t n_obj = object_list.size();
+//     const std::size_t n_size = svm.alpha_y_.size();
+//
+//     CudaAssert(cudaMalloc(&c_f_value, n_obj * n_size * sizeof(float)));
+//     CudaAssert(cudaMalloc(&c_alpha_y, n_size * sizeof(float)));
+//     CudaAssert(cudaMalloc(&c_x, svm.x_.size() * n_size * sizeof(float)));
+//     CudaAssert(cudaMalloc(&c_object, n_obj * n_size * sizeof(float)));
+//
+//     CudaAssert(cudaMemcpy(c_alpha_y, svm.alpha_y_.data(), svm.alpha_y_.size() * sizeof(float), cudaMemcpyHostToDevice));
+//     CudaAssert(cudaMemcpy(c_x, svm.x_.data(), svm.x_.size() * n_size * sizeof(float), cudaMemcpyHostToDevice));
+//     CudaAssert(cudaMemcpy(c_object, object_list.data(), n_obj * n_size * sizeof(float), cudaMemcpyHostToDevice));
+//
+//     dim3 threads_division{16, 64};
+//     LOG_INFO("Running Function value SVM");
+//     FunctionValueSVM<<<(n_obj / 16) + 1, threads_division>>>(c_alpha_y, c_x, c_f_value, c_object, gamma, n_size, n_obj);
+//     LOG_INFO("Ended Function value SVM");
+//
+//     cudaFree(c_alpha_y);
+//     cudaFree(c_x);
+//     cudaFree(c_object);
+//
+//     int *sum_key = nullptr;
+//     CudaAssert(cudaMalloc(&sum_key, n_obj * n_size * sizeof(int)));
+//     GenerateKey<<<(n_size * n_size / 1024) + 1, 1024>>>(sum_key, n_obj, n_size);
+//
+//     int *out_key = nullptr;
+//     CudaAssert(cudaMalloc(&out_key, n_obj * n_size * sizeof(int)));
+//
+//     float *c_sum_f_value = nullptr;
+//     CudaAssert(cudaMalloc(&c_sum_f_value, n_obj * sizeof(float)));
+//     CudaAssert(cudaMemset(c_sum_f_value, 0, n_obj * sizeof(float)));
+//
+//     LOG_INFO("Runngin reduce");
+//     thrust::reduce_by_key(thrust::device, sum_key, sum_key + n_obj * n_size, c_f_value, out_key, c_sum_f_value);
+//     cudaDeviceSynchronize();
+//
+//     cudaFree(c_f_value);
+//     cudaFree(sum_key);
+//     cudaFree(out_key);
+//
+//     std::vector<float> result;
+//     result.resize(n_obj);
+//
+//     CudaAssert(cudaMemcpy(result.data(), c_sum_f_value, n_obj * sizeof(float), cudaMemcpyDeviceToHost));
+//
+//     cudaFree(c_sum_f_value);
+//
+//     return result;
+// }
