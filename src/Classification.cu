@@ -692,10 +692,10 @@ void SVM::Train(const ObjectList &x, const std::vector<int> &y, const KernelFunc
         else if (new_a_i_high > C - eps)
             new_a_i_high = C;
 
-        const float B1 = b_high + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel_x_h +\
+        const float B1 = fi[i_high] + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel_x_h +\
                       y[i_low] * (new_a_i_low - alpha[i_low]) * kernel_x_hl + B;
 
-        const float B2 = b_low + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel_x_hl + \
+        const float B2 = fi[i_low] + y[i_high] * (new_a_i_high - alpha[i_high]) * kernel_x_hl + \
                       y[i_low] * (new_a_i_low - alpha[i_low]) * kernel_x_l + B;
 
         B = (B1 + B2) / 2.f;
