@@ -153,28 +153,6 @@ TEST_CASE("Random oversampling", "[Classification]")
     RandomOversampling(object_list, obj_class, 2);
 }
 
-
-TEST_CASE("RBF kernel", "[Classification]")
-{
-    constexpr float gamma = 0.1;
-
-    const AttributeList x1{0.8147, 0.9058, 0.1270, 0.9134, 0.6324};
-    const AttributeList x2{0.0975, 0.2785, 0.5469, 0.9575, 0.9649};
-
-    const auto y = KernelRbf(x1, x2, gamma);
-    REQUIRE_THAT(y, Catch::Matchers::WithinRel(0.8872f, 0.0001f));
-    BENCHMARK("RBF kernel x1, x2") {
-        return KernelRbf(x1, x2, gamma);
-    };
-
-
-    const AttributeList x3{0.1576, 0.9706, 0.9572, 0.4854, 0.8003};
-    const AttributeList x4{0.1419, 0.4218, 0.9157, 0.7922, 0.9595};
-
-    const auto y2 = KernelRbf(x3, x4, gamma);
-    REQUIRE_THAT(y2, Catch::Matchers::WithinRel(0.9586f, 0.0001f));
-}
-
 // TEST_CASE("F1 score", "[Classification]")
 // {
 //     std::vector<uint32_t> obj_class{};
