@@ -16,19 +16,23 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(spdlog)
 
 # ============================================
+
 FetchContent_Declare(
         cereal
         GIT_REPOSITORY https://github.com/USCiLab/cereal
         GIT_TAG        v1.3.2
 )
 
-FetchContent_GetProperties(cereal)
-if(NOT cereal_POPULATED)
-    FetchContent_Populate(cereal)
-endif()
+set(BUILD_DOC OFF CACHE BOOL "Disable documentation for cereal" FORCE)
+set(BUILD_SANDBOX OFF CACHE BOOL "Disable examples for cereal" FORCE)
+set(SKIP_PERFORMANCE_COMPARISON ON CACHE BOOL "Skip performance comparison for cereal" FORCE)
+
+FetchContent_MakeAvailable(cereal)
+
+add_library(cereal_lib INTERFACE)
+target_include_directories(cereal_lib INTERFACE "${cereal_SOURCE_DIR}/include/")
 
 # ==========================================
-
 
 FetchContent_Declare(
         glfw
@@ -48,30 +52,26 @@ FetchContent_Declare(
         GIT_TAG v1.92.0-docking
 )
 
-FetchContent_GetProperties(imgui)
-if(NOT imgui_POPULATED)
-    message("Fetching imgui")
-    FetchContent_Populate(imgui)
+FetchContent_MakeAvailable(imgui)
+add_library(imgui
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
 
-    add_library(imgui
-            ${imgui_SOURCE_DIR}/imgui.cpp
-            ${imgui_SOURCE_DIR}/imgui_demo.cpp
-            ${imgui_SOURCE_DIR}/imgui_draw.cpp
-            ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-            ${imgui_SOURCE_DIR}/imgui_tables.cpp
-            ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-            ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
+target_include_directories(imgui PUBLIC
+        ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
+        ${glfw_SOURCE_DIR}/include
+)
 
-    target_include_directories(imgui PUBLIC
-            ${imgui_SOURCE_DIR}
-            ${imgui_SOURCE_DIR}/backends
-            ${glfw_SOURCE_DIR}/include)
+target_link_libraries(imgui PRIVATE glfw)
 
-    target_link_libraries(imgui PRIVATE glfw)
-
-    # copy font
-    configure_file(${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf  ${CMAKE_BINARY_DIR} COPYONLY)
-endif ()
+# copy font
+configure_file(${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf  ${CMAKE_BINARY_DIR} COPYONLY)
 
 # ==========================================
 
@@ -80,30 +80,22 @@ FetchContent_Declare(
         GIT_REPOSITORY https://github.com/epezent/implot.git
         GIT_TAG master
 )
-FetchContent_GetProperties(implot)
-if(NOT implot_POPULATED)
-    message("Fetching implot")
-    FetchContent_Populate(implot)
+FetchContent_MakeAvailable(implot)
 
-    add_library(implot
-            ${implot_SOURCE_DIR}/implot.cpp
-            ${implot_SOURCE_DIR}/implot_items.cpp
-            ${implot_SOURCE_DIR}/implot_demo.cpp
-    )
+add_library(implot
+        ${implot_SOURCE_DIR}/implot.cpp
+        ${implot_SOURCE_DIR}/implot_items.cpp
+        ${implot_SOURCE_DIR}/implot_demo.cpp
+)
 
-    target_include_directories(implot PUBLIC
-            ${implot_SOURCE_DIR}
-    )
-
-    target_link_libraries(implot PRIVATE imgui)
-endif ()
+target_include_directories(implot PUBLIC ${implot_SOURCE_DIR})
+target_link_libraries(implot PRIVATE imgui)
 
 # ==========================================
 
 FetchContent_MakeAvailable(glfw)
 
 # ==========================================
-include(FetchContent)
 
 FetchContent_Declare(
         glad
@@ -146,7 +138,14 @@ if(NOT imgui_node_POPULATED)
             ${glfw_SOURCE_DIR}/include
     )
 
-    target_compile_definitions(imgui_node PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
+    target_compile_definitions(imgui_node PRIVATE IMGUI_DEFINE_MATH_OPERATORS)
 
     target_link_libraries(imgui_node PRIVATE imgui)
 endif()
+
+# ==========================================
+
+add_library(cuda_interface INTERFACE)
+target_include_directories(cuda_interface INTERFACE "${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}")
+set_target_properties(cuda_interface PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+target_compile_options(cuda_interface INTERFACE $<$<COMPILE_LANGUAGE:CUDA>: --extended-lambda>)
