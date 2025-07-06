@@ -45,7 +45,7 @@ set(GLFW_TEST OFF CACHE BOOL "GLFW lib only" )
 FetchContent_Declare(
         imgui
         GIT_REPOSITORY https://github.com/ocornut/imgui
-        GIT_TAG docking
+        GIT_TAG v1.92.0-docking
 )
 
 FetchContent_GetProperties(imgui)
@@ -128,7 +128,7 @@ endif()
 FetchContent_Declare(
         imgui_node
         GIT_REPOSITORY https://github.com/Nelarius/imnodes
-        GIT_TAG        v0.5
+        GIT_TAG        master
 )
 
 FetchContent_GetProperties(imgui_node)

@@ -17,6 +17,9 @@
 #include <thrust/functional.h>
 #include <thrust/execution_policy.h>
 
+/// Stupid winapi macro name - love msvc <3
+#undef LoadImage
+
 extern Coordinator coordinator;
 
 
