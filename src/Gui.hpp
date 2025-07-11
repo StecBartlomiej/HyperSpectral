@@ -18,6 +18,7 @@
 #include "imgui_impl_opengl3.h"
 #include <GLFW/glfw3.h>
 
+#define UTF8_TO_CHAR(text) (reinterpret_cast<const char*>(text))
 
 [[nodiscard]] GLFWwindow* CreateWindow();
 

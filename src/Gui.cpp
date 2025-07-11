@@ -113,8 +113,8 @@ GLFWwindow* CreateWindow()
 
     ImFontGlyphRangesBuilder builder;
     builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
-    builder.AddText(reinterpret_cast<const char *>(u8"Zażółć gęślą jaźń"));
-    builder.AddText(reinterpret_cast<const char *>(u8"ZAŻÓŁĆ GĘŚLĄ JAŹŃ"));
+    builder.AddText(UTF8_TO_CHAR(u8"Zażółć gęślą jaźń"));
+    builder.AddText(UTF8_TO_CHAR(u8"ZAŻÓŁĆ GĘŚLĄ JAŹŃ"));
     ImVector<ImWchar> ranges;
     builder.BuildRanges(&ranges);
 
@@ -280,7 +280,7 @@ void ThresholdPopupWindow::RunThreshold()
 
 void DataInputImageWindow::Show()
 {
-    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Plik nagłówkowy ENVI"),
+    if (ImGui::BeginCombo(UTF8_TO_CHAR(u8"Plik nagłówkowy ENVI"),
         envi_header_path_.filename().string().c_str()))
     {
         std::size_t idx = 0;
@@ -310,7 +310,7 @@ void DataInputImageWindow::Show()
     static int freeze_rows = 1;
 
     ImVec2 outer_size = ImVec2(0.0f, 16 * 8);
-    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8"Wybierz dane wejściowe"), 3, flags, outer_size))
+    if (ImGui::BeginTable(UTF8_TO_CHAR(u8"Wybierz dane wejściowe"), 3, flags, outer_size))
     {
         ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
 
@@ -407,7 +407,7 @@ void ThresholdPopupWindow::Show()
         RunThreshold();
     }
 
-    if (ImGui::InputFloat(reinterpret_cast<const char *>(u8"Próg"), &threshold_value_, 0.01f, 1.f))
+    if (ImGui::InputFloat(UTF8_TO_CHAR(u8"Próg"), &threshold_value_, 0.01f, 1.f))
     {
         RunThreshold();
     }
@@ -492,16 +492,16 @@ void StatisticWindow::Show()
     static int freeze_rows = 1;
 
     ImVec2 outer_size = ImVec2(0.0f, 16 * 8 * 2);
-    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8"Parametry statyczne dla obrazów"), 6, flags, outer_size))
+    if (ImGui::BeginTable(UTF8_TO_CHAR(u8"Parametry statyczne dla obrazów"), 6, flags, outer_size))
     {
         ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
 
         ImGui::TableSetupColumn("Id", ImGuiTableColumnFlags_NoHide);
         ImGui::TableSetupColumn("Nazwa obrazu");
-        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Średnia"));
-        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Wariancja"));
-        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Skośność"));
-        ImGui::TableSetupColumn(reinterpret_cast<const char*>(u8"Kurtoza"));
+        ImGui::TableSetupColumn(UTF8_TO_CHAR(u8"Średnia"));
+        ImGui::TableSetupColumn(UTF8_TO_CHAR(u8"Wariancja"));
+        ImGui::TableSetupColumn(UTF8_TO_CHAR(u8"Skośność"));
+        ImGui::TableSetupColumn(UTF8_TO_CHAR(u8"Kurtoza"));
 
         ImGui::TableHeadersRow();
         int row = 1;
@@ -573,7 +573,7 @@ void DataClassificationWindow::Show()
     static int freeze_rows = 1;
 
     ImVec2 outer_size = ImVec2(0.0f, 16 * 8);
-    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8"Przypisz klasy"), 3, flags, outer_size))
+    if (ImGui::BeginTable(UTF8_TO_CHAR(u8"Przypisz klasy"), 3, flags, outer_size))
     {
         ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
 
@@ -631,7 +631,7 @@ void LabelPopupWindow::Show()
 
     static const std::filesystem::path loading_image_path_{R"(E:\Praca inzynierska\HSI images\)"};
 
-    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Plki tabeli prawd"), label_file_.string().c_str()))
+    if (ImGui::BeginCombo(UTF8_TO_CHAR(u8"Plki tabeli prawd"), label_file_.string().c_str()))
     {
         std::size_t idx = 0;
         for (const auto& filepath: std::filesystem::directory_iterator(loading_image_path_))
@@ -793,7 +793,7 @@ void SvmViewWindow::Show()
     static int freeze_rows = 1;
 
     ImVec2 outer_size = ImVec2(0.0f, 16 * 8);
-    if (ImGui::BeginTable(reinterpret_cast<const char*>(u8""), 2, flags, outer_size))
+    if (ImGui::BeginTable(UTF8_TO_CHAR(u8""), 2, flags, outer_size))
     {
         ImGui::TableSetupScrollFreeze(freeze_cols, freeze_rows);
 
@@ -839,7 +839,7 @@ void MainWindow::Show()
     ImGui::Spacing();
     constexpr static std::array<std::string_view, 2> approach_names = {"Obiekt", "Piksel"};
     ImGui::SetNextItemWidth(100.f);
-    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Sposób przetwarzania"), approach_names[approach_type_].data()))
+    if (ImGui::BeginCombo(UTF8_TO_CHAR(u8"Sposób przetwarzania"), approach_names[approach_type_].data()))
     {
         int i = 0;
         for (const auto name: approach_names)
@@ -865,7 +865,7 @@ void MainWindow::Show()
 
     ImGui::Spacing();
 
-    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Wyświelt obraz"), selected_img_name_.c_str()))
+    if (ImGui::BeginCombo(UTF8_TO_CHAR(u8"Wyświelt obraz"), selected_img_name_.c_str()))
     {
         for (const auto entity : data_input_window_.GetLoadedEntities())
         {
@@ -902,7 +902,7 @@ void MainWindow::Show()
 
     ImGui::Spacing();
 
-    if (ImGui::BeginCombo(reinterpret_cast<const char*>(u8"Model uczenia"), selected_model_.data()))
+    if (ImGui::BeginCombo(UTF8_TO_CHAR(u8"Model uczenia"), selected_model_.data()))
     {
         constexpr static std::array<std::string_view, 2> model_names = {"Drzewo decyzyjne", "SVM"};
 
@@ -1267,10 +1267,10 @@ void MainWindow::RunTrainDisjoint(const std::vector<Entity> &image)
 {
     const auto start = std::chrono::high_resolution_clock::now();
     static constexpr std::array<std::string_view, 3> labels_file = {
-        // R"(E:\Praca inzynierska\HSI images\lublin_labels.dat)",
-        R"(E:\Praca inzynierska\HSI images\kawa_1_labels.dat)",
-        R"(E:\Praca inzynierska\HSI images\kawa_2_labels.dat)",
-        R"(E:\Praca inzynierska\HSI images\kawa_3_labels.dat)",
+        R"(E:\Praca inzynierska\HSI images\lublin_labels.dat)",
+        // R"(E:\Praca inzynierska\HSI images\kawa_1_labels.dat)",
+        // R"(E:\Praca inzynierska\HSI images\kawa_2_labels.dat)",
+        // R"(E:\Praca inzynierska\HSI images\kawa_3_labels.dat)",
     };
 
     // std::vector<PatchData> patch_positions;
@@ -2122,7 +2122,7 @@ void MainWindow::ShowPixelApproach()
     {
         if (selected_img_name_.empty())
         {
-            LOG_WARN(reinterpret_cast<const char*>(u8"Wyświelt obraz przed progowaniem"));
+            LOG_WARN(UTF8_TO_CHAR(u8"Wyświelt obraz przed progowaniem"));
         }
         else
         {
@@ -2141,21 +2141,21 @@ void MainWindow::ShowPixelApproach()
     }
 
     ImGui::SameLine();
-    if (ImGui::Button(reinterpret_cast<const char*>(u8"Tabela prawd"), button_size))
+    if (ImGui::Button(UTF8_TO_CHAR(u8"Tabela prawd"), button_size))
     {
         ImGui::OpenPopup("Tabela prawdy");
     }
 
     ImGui::Spacing();
 
-    ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
+    ImGui::Checkbox(UTF8_TO_CHAR(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
 
     ImGui::Spacing();
 
     ImGui::PushItemWidth(150);
-    ImGui::DragFloat(reinterpret_cast<const char*>(u8"Podział uczące-testowe"), &disjoint_data_split_, 0.05, 0, 1);
+    ImGui::DragFloat(UTF8_TO_CHAR(u8"Podział uczące-testowe"), &disjoint_data_split_, 0.05, 0, 1);
     ImGui::Spacing();
-    ImGui::DragFloat(reinterpret_cast<const char*>(u8"Podział uczące-walidacyjne"), &disjoint_validation_split_, 0.05, 0, 1);
+    ImGui::DragFloat(UTF8_TO_CHAR(u8"Podział uczące-walidacyjne"), &disjoint_validation_split_, 0.05, 0, 1);
     ImGui::Spacing();
 }
 
@@ -2167,7 +2167,7 @@ void MainWindow::ShowObjectApproach()
     {
         if (selected_img_name_.empty())
         {
-            LOG_WARN(reinterpret_cast<const char*>(u8"Wyświelt obraz przed progowaniem"));
+            LOG_WARN(UTF8_TO_CHAR(u8"Wyświelt obraz przed progowaniem"));
         }
         else
         {
@@ -2193,10 +2193,10 @@ void MainWindow::ShowObjectApproach()
     }
 
     ImGui::Spacing();
-    ImGui::Checkbox(reinterpret_cast<const char*>(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
+    ImGui::Checkbox(UTF8_TO_CHAR(u8"Dodaj sąsiednie kanały"), &add_neighbour_bands_);
 
     ImGui::Spacing();
-    ImGui::SliderInt(reinterpret_cast<const char*>(u8"K-krzyżowa walidacja"), &k_folds_,
+    ImGui::SliderInt(UTF8_TO_CHAR(u8"K-krzyżowa walidacja"), &k_folds_,
         1, 15, "%d", ImGuiSliderFlags_AlwaysClamp);
 }
 
@@ -2320,10 +2320,10 @@ void MainWindow::RunPca(const std::vector<Entity> &entities_vec)
 const char* GetAttributeName(std::size_t idx)
 {
     const static std::array<const char*, 4> attr_names_ = {
-        reinterpret_cast<const char*>(u8"Średnia"),
-        reinterpret_cast<const char*>(u8"Wariancja"),
-        reinterpret_cast<const char*>(u8"Skośność"),
-        reinterpret_cast<const char*>(u8"Kurtoza")
+        UTF8_TO_CHAR(u8"Średnia"),
+        UTF8_TO_CHAR(u8"Wariancja"),
+        UTF8_TO_CHAR(u8"Skośność"),
+        UTF8_TO_CHAR(u8"Kurtoza")
     };
 
     assert(idx < attr_names_.size());
