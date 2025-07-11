@@ -4,7 +4,7 @@
 #include <Classification.hpp>
 
 #include "Logger.hpp"
-#include "EnviHeader.hpp"
+#include "Parser/EnviHeader.hpp"
 #include "Components.hpp"
 #include "EntityComponentSystem.hpp"
 
@@ -18,43 +18,32 @@
 
 #include <cereal/types/vector.hpp>
 
-#ifdef DEBUG
-#define CudaAssert(code) \
-{  \
-    if (code != cudaSuccess) \
-    { \
-        LOG_ERROR("CUDA assert: {} at {}:{}\n", cudaGetErrorString(code), __FILE__, __LINE__); \
-        exit(code); \
-    } \
-}
 
-#define CusolverAssert(code)\
-{ \
-    if (code != CUSOLVER_STATUS_SUCCESS) \
-    { \
-        LOG_ERROR("CUSOLVER error {} at {}:{}\n", static_cast<int>(code), __FILE__, __LINE__); \
-        exit(code); \
-    } \
-}
-#else
-inline void CudaAssert(cudaError_t code) \
+#ifndef NDEBUG
+[[always_inline]]
+__forceinline
+#endif
+inline void CudaAssert(const cudaError_t code) \
 {
     if (code != cudaSuccess)
     {
-        LOG_ERROR("CUDA assert: {}\n", cudaGetErrorString(code));
+        LOG_ERROR("CUDA assert {} at {}:{}\n", cudaGetErrorString(code), __FILE__, __LINE__);
         exit(code);
     }
 }
 
-inline void CusolverAssert(cusolverStatus_t code)
+#ifndef NDEBUG
+[[always_inline]]
+__forceinline
+#endif
+inline void CusolverAssert(const cusolverStatus_t code)
 {
     if (code != CUSOLVER_STATUS_SUCCESS)
     {
-        LOG_ERROR("CUSOLVER error {}\n", static_cast<int>(code));
+        LOG_ERROR("CUSOLVER error {} at {}:{}\n", static_cast<int>(code), __FILE__, __LINE__);
         exit(code);
     }
 }
-#endif
 
 
 struct CpuMatrix;
