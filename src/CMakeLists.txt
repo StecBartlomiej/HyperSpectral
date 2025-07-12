@@ -4,8 +4,8 @@ set(SOURCE_FILES
         Parser/EnviHeader.cpp
         Parser/EnviLexer.cpp
         Parser/EnviParser.cpp
-        EntityComponentSystem.cpp
-        Components.cpp
+        ECS/EntityComponentSystem.cpp
+        ECS/Components.cpp
         Image.cu
         Classification.cu
 )
@@ -16,7 +16,7 @@ set(GUI_SOURCE_FILES
 
 
 add_library(lib_hypercpp STATIC ${SOURCE_FILES})
-target_include_directories(lib_hypercpp PUBLIC "." "Parser")
+target_include_directories(lib_hypercpp PUBLIC "." "Parser" "ECS")
 target_link_libraries(lib_hypercpp PUBLIC
         spdlog::spdlog
         cuda_interface

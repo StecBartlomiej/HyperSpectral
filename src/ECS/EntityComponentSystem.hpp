@@ -1,7 +1,7 @@
 #ifndef HYPERSPECTRAL_ENTITYCOMPONENTSYSTEM_HPP
 #define HYPERSPECTRAL_ENTITYCOMPONENTSYSTEM_HPP
 
-#include "Logger.hpp"
+#include "../Logger.hpp"
 
 #include <stack>
 #include <set>
