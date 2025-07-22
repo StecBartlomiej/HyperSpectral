@@ -200,7 +200,7 @@ void ImageViewWindow::Show()
     ImGui::Text("Skala");
 
     static int slider_value = 1;
-    if (ImGui::SliderInt("Pasmo",  &slider_value, 1, img_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+    if (ImGui::SliderInt("Pasmo",  &slider_value, 1, img_size_.channel, "%d", ImGuiSliderFlags_ClampOnInput))
     {
         original_img_.SetBand(slider_value);
     }
@@ -223,15 +223,10 @@ void ImageViewWindow::LoadEntity(Entity entity)
 
 void ImageViewWindow::RunThreshold(float threshold, std::size_t threshold_band)
 {
-    const auto pixels_width = img_size_.width * img_size_.height;
-    const auto data = original_img_.GetImageData().get() + pixels_width * (threshold_band - 1);
+    // TODO: clean up after changing class Image to have CpuMatrix
+    const CpuMatrix img{.size = img_size_, .data = original_img_.GetImageData()};
 
-    Matrix img{.bands_height = 1, .pixels_width = pixels_width, .data = data};
-    auto mask = ManualThresholding(img, 0, threshold);
-
-    mask.size.height = img_size_.height;
-    mask.size.width = img_size_.width;
-    mask.size.depth = 1;
+    const auto mask = ManualThresholding(img, threshold_band - 1, threshold);
 
     threshold_img_.LoadImage(mask);
 }
@@ -240,16 +235,16 @@ CpuMatrix ImageViewWindow::GetThresholdMask() const
 {
     auto ptr = threshold_img_.GetImageData();
 
-    ImageSize mask_size{.width = img_size_.width, .height = img_size_.height, .depth =  1};
+    ImageSize mask_size{.width = img_size_.width, .height = img_size_.height, .channel =  1};
     return {mask_size, std::move(ptr)};
 }
 
 void TransformedImageWindow::Show()
 {
     ImGui::SeparatorText("Wynik PCA");
-    if (ImGui::SliderInt("Pasmo##PCA_PASMO",  &slider_value_, 1, img_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+    if (ImGui::SliderInt("Pasmo##PCA_PASMO",  &slider_value_, 1, img_size_.channel, "%d", ImGuiSliderFlags_ClampOnInput))
     {
-        original_img_.SetBand(img_size_.depth + 1 - slider_value_);
+        original_img_.SetBand(img_size_.channel + 1 - slider_value_);
     }
     original_img_.Show();
 }
@@ -259,21 +254,16 @@ void TransformedImageWindow::Load(const CpuMatrix &cpu_matrix)
     img_size_ = cpu_matrix.size;
 
     original_img_.LoadImage(cpu_matrix);
-    original_img_.SetBand(img_size_.depth);
+    original_img_.SetBand(img_size_.channel);
     slider_value_ = 1;
 }
 
+// TODO: delete reception ??
 void ThresholdPopupWindow::RunThreshold()
 {
-    const auto pixels_width = img_size_.width * img_size_.height;
-    const auto data = original_img_.GetImageData().get() + pixels_width * (selected_band_ - 1);
+    const CpuMatrix img{.size = img_size_, .data = original_img_.GetImageData()};
 
-    Matrix img{.bands_height = 1, .pixels_width = pixels_width, .data = data};
-    auto mask = ManualThresholding(img, 0, threshold_value_);
-
-    mask.size.height = img_size_.height;
-    mask.size.width = img_size_.width;
-    mask.size.depth = 1;
+    const auto mask = ManualThresholding(img, selected_band_ - 1, threshold_value_);
 
     threshold_img_.LoadImage(mask);
 }
@@ -386,22 +376,14 @@ void DataInputImageWindow::LoadImages()
 
 CpuMatrix RunImageThreshold(const CpuMatrix& img, ThresholdSetting setting)
 {
-    const auto pixels_width = img.size.width * img.size.height;
-    const auto data = img.data.get() + pixels_width * (setting.band - 1);
-
-    Matrix m_img{.bands_height = 1, .pixels_width = pixels_width, .data = data};
-    auto mask = ManualThresholding(m_img, 0, setting.threshold);
-
-    mask.size.height = img.size.height;
-    mask.size.width = img.size.width;
-    mask.size.depth = 1;
-
+    assert(setting.band > 0 && setting.band <= img.size.channel);
+    auto mask = ManualThresholding(img, setting.band - 1, setting.threshold);
     return std::move(mask);
 }
 
 void ThresholdPopupWindow::Show()
 {
-    if (ImGui::SliderInt("Pasmo##PCA_PASMO",  &selected_band_, 1, img_size_.depth, "%d", ImGuiSliderFlags_ClampOnInput))
+    if (ImGui::SliderInt("Pasmo##PCA_PASMO",  &selected_band_, 1, img_size_.channel, "%d", ImGuiSliderFlags_ClampOnInput))
     {
         original_img_.SetBand(selected_band_);
         RunThreshold();
@@ -1182,8 +1164,8 @@ void MainWindow::RunTrain(const std::vector<Entity> &entities_vec)
     ImageSize max_obj_size = img_size_;
 
     /// Get statistical values
-    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+    const ImageSize new_size{.width = max_obj_size.width, .height =  max_obj_size.height, .channel = k_bands};
+    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, new_size, LoadData, cpu_img_objects.size());
 
     statistical_params_.clear();
     for (std::size_t i = 0; i < entities_vec.size(); ++i)
@@ -1292,7 +1274,7 @@ void MainWindow::RunTrainDisjoint(const std::vector<Entity> &image)
 
         img_size_.width = PatchData::S;
         img_size_.height= PatchData::S;
-        img_size_.depth = size.depth;
+        img_size_.channel = size.channel;
 
         LOG_INFO("Get patch positions");
 
@@ -1646,7 +1628,7 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchData
 
     const auto size = coordinator.GetComponent<ImageSize>(image);
     const ImageSize patch_size = add_neighbour_bands_ ?
-        ImageSize{PatchData::S - 2, PatchData::S - 2, size.depth * 9} : ImageSize{PatchData::S, PatchData::S, size.depth};
+        ImageSize{PatchData::S - 2, PatchData::S - 2, size.channel * 9} : ImageSize{PatchData::S, PatchData::S, size.channel};
     const auto threshold_setting = threshold_popup_window_.GetThresholdSettings().value_or(ThresholdSetting{0.f, 1});
 
     PatchSystem patch_system{image};
@@ -1671,20 +1653,20 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchData
         CpuMatrix patch = patch_system.GetPatchImage(x, y);
 
         if (add_neighbour_bands_)
-            patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
+            patch = AddNeighboursBand(patch);
 
         const auto patch_mask = RunImageThreshold(patch, threshold_setting);
 
         // const auto segmentation_mask = SegmentationSAM(patch, sam_threshold_);
         // const auto mul_mask = MultiplyMask(patch_mask, segmentation_mask);
-        // auto object = GetObjectFromMask(patch.GetMatrix(), mul_mask.GetMatrix());
+        // auto object = GetObjectFromMask(patch, mul_mask);
         // const auto patch_mask = RunImageThreshold(patch, threshold_setting);
-        auto object = GetObjectFromMask(patch.GetMatrix(), patch_mask.GetMatrix());
+        auto object = GetObjectFromMask(patch, patch_mask);
 
         return object;
     };
 
-    result_pca_ = PCA(LoadData,  patch_size.depth, patch_size.height * patch_size.width, patch_positions.size());
+    result_pca_ = PCA(LoadData,  patch_size.channel, patch_size.height * patch_size.width, patch_positions.size());
     result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
 
     const auto max_i = result_pca_.eigenvalues.size.height;
@@ -1699,8 +1681,8 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchData
     // UpdatePcaImage();
 
     LOG_INFO("Run projection of PCA on patches");
-    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        patch_size.height * patch_size.width, patch_positions.size());
+    const ImageSize new_size{.width = patch_size.width, .height = patch_size.height, .channel = k_bands};
+    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, new_size, LoadData, patch_positions.size());
 
     LOG_INFO("Calculate statistiacal params on patches");
     statistical_params_.clear();
@@ -1729,7 +1711,7 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchLabe
 
     const auto size = coordinator.GetComponent<ImageSize>(patch_positions.front().img);
     const ImageSize patch_size = add_neighbour_bands_ ?
-        ImageSize{PatchData::S - 2, PatchData::S - 2, size.depth * 9} : ImageSize{PatchData::S, PatchData::S, size.depth};
+        ImageSize{PatchData::S - 2, PatchData::S - 2, size.channel * 9} : ImageSize{PatchData::S, PatchData::S, size.channel};
     const auto threshold_setting = threshold_popup_window_.GetThresholdSettings().value_or(ThresholdSetting{0.f, 1});
 
     LOG_INFO("Run PCA on patches");
@@ -1754,14 +1736,14 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchLabe
         CpuMatrix patch = patch_system.GetPatchImage(patch_data.center_x, patch_data.center_y);
 
         if (add_neighbour_bands_)
-            patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
+            patch = AddNeighboursBand(patch);
 
         const auto patch_mask = RunImageThreshold(patch, threshold_setting);
-        auto object = GetObjectFromMask(patch.GetMatrix(), patch_mask.GetMatrix());
+        auto object = GetObjectFromMask(patch, patch_mask);
         return object;
     };
 
-    result_pca_ = PCA(LoadData,  patch_size.depth, patch_size.height * patch_size.width, patch_positions.size());
+    result_pca_ = PCA(LoadData,  patch_size.channel, patch_size.height * patch_size.width, patch_positions.size());
     result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
 
     const auto max_i = result_pca_.eigenvalues.size.height;
@@ -1776,8 +1758,8 @@ ClassificationData MainWindow::RunTrainPreprocessing(const std::vector<PatchLabe
     // UpdatePcaImage();
 
     LOG_INFO("Run projection of PCA on patches");
-    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        patch_size.height * patch_size.width, patch_positions.size());
+    const ImageSize new_size{.width = patch_size.width, .height = patch_size.height, .channel = k_bands};
+    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, new_size, LoadData, patch_positions.size());
 
     LOG_INFO("Calculate statistiacal params on patches");
     statistical_params_.clear();
@@ -1809,7 +1791,7 @@ ObjectList MainWindow::RunPreprocessing(const std::vector<PatchData> &patch_posi
     const std::size_t k_bands = pca_popup_window_.GetPcaSettings().value().selected_bands;
 
     const ImageSize patch_size = add_neighbour_bands_ ?
-        ImageSize{PatchData::S - 2, PatchData::S - 2, size.depth * 9} : ImageSize{PatchData::S, PatchData::S, size.depth};
+        ImageSize{PatchData::S - 2, PatchData::S - 2, size.channel * 9} : ImageSize{PatchData::S, PatchData::S, size.channel};
 
     PatchSystem patch_system{image};
 
@@ -1820,17 +1802,17 @@ ObjectList MainWindow::RunPreprocessing(const std::vector<PatchData> &patch_posi
         CpuMatrix patch = patch_system.GetPatchImage(x, y);
 
         if (add_neighbour_bands_)
-            patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
+            patch = AddNeighboursBand(patch);
 
         const auto patch_mask = RunImageThreshold(patch, threshold_setting);
         // const auto segmentation_mask = SegmentationSAM(patch, sam_threshold_);
         // const auto mul_mask = MultiplyMask(patch_mask, segmentation_mask);
-        // return GetObjectFromMask(patch.GetMatrix(), mul_mask.GetMatrix());
-        return GetObjectFromMask(patch.GetMatrix(), patch_mask.GetMatrix());
+        // return GetObjectFromMask(patch, mul_mask);
+        return GetObjectFromMask(patch, patch_mask);
     };
    LOG_INFO("Run projection of PCA on patches");
-    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        patch_size.height * patch_size.width, patch_positions.size());
+    const ImageSize new_size{.width = patch_size.width, .height = patch_size.height, .channel = k_bands};
+    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, new_size, LoadData, patch_positions.size());
 
     LOG_INFO("Calculate statistical params on patches");
     statistical_params_.clear();
@@ -1908,7 +1890,7 @@ ObjectList MainWindow::RunPreprocessing(const std::vector<PatchLabel> &patch_pos
     const std::size_t k_bands = pca_popup_window_.GetPcaSettings().value().selected_bands;
 
     const ImageSize patch_size = add_neighbour_bands_ ?
-        ImageSize{PatchData::S - 2, PatchData::S - 2, size.depth * 9} : ImageSize{PatchData::S, PatchData::S, size.depth};
+        ImageSize{PatchData::S - 2, PatchData::S - 2, size.channel * 9} : ImageSize{PatchData::S, PatchData::S, size.channel};
 
     PatchSystemMultiImage mult_patch_system{images};
 
@@ -1920,15 +1902,15 @@ ObjectList MainWindow::RunPreprocessing(const std::vector<PatchLabel> &patch_pos
         CpuMatrix patch = patch_system.GetPatchImage(patch_data.center_x, patch_data.center_y);
 
         if (add_neighbour_bands_)
-            patch = AddNeighboursBand(patch.GetMatrix(), patch.size);
+            patch = AddNeighboursBand(patch);
 
         const auto patch_mask = RunImageThreshold(patch, threshold_setting);
 
-        return GetObjectFromMask(patch.GetMatrix(), patch_mask.GetMatrix());
+        return GetObjectFromMask(patch, patch_mask);
     };
-   LOG_INFO("Run projection of PCA on patches");
-    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        patch_size.height * patch_size.width, patch_positions.size());
+    LOG_INFO("Run projection of PCA on patches");
+    const ImageSize new_size{.width = patch_size.width, .height = patch_size.height, .channel = k_bands};
+    auto patches = MatmulPcaEigenvectors(result_pca_.eigenvectors, new_size, LoadData, patch_positions.size());
 
     LOG_INFO("Calculate statistical params on patches");
     statistical_params_.clear();
@@ -2014,8 +1996,8 @@ std::vector<uint32_t> MainWindow::RunClassify(const std::vector<Entity> &entitie
 
     // Transforming to PCA dimensions
     auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
-    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadData,
-        max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+    const ImageSize new_size{.width = max_obj_size.width, .height = max_obj_size.height, .channel = k_bands};
+    const auto pca_transformed_objects = MatmulPcaEigenvectors(result_pca_.eigenvectors, new_size, LoadData, cpu_img_objects.size());
 
     // Getting statistical values
     std::vector<std::vector<StatisticalParameters>> statistical_params{};
@@ -2136,7 +2118,7 @@ void MainWindow::ShowPixelApproach()
     if (ImGui::Button("PCA", button_size))
     {
         auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
-        pca_popup_window_.SetMaxBands(cpu_img.size.depth);
+        pca_popup_window_.SetMaxBands(cpu_img.size.channel);
         ImGui::OpenPopup("Ustawienia PCA");
     }
 
@@ -2181,7 +2163,7 @@ void MainWindow::ShowObjectApproach()
     if (ImGui::Button("PCA", button_size))
     {
         auto cpu_img = GetImageData(threshold_window_.LoadedEntity().value());
-        pca_popup_window_.SetMaxBands(cpu_img.size.depth);
+        pca_popup_window_.SetMaxBands(cpu_img.size.channel);
         ImGui::OpenPopup("Ustawienia PCA");
     }
 
@@ -2230,7 +2212,7 @@ void MainWindow::UpdatePcaImage()
     {
         try
         {
-            cpu_img = AddNeighboursBand(cpu_img.GetMatrix(), cpu_img.size);
+            cpu_img = AddNeighboursBand(cpu_img);
         }
         catch (const std::bad_alloc& err)
         {
@@ -2240,7 +2222,8 @@ void MainWindow::UpdatePcaImage()
     }
     auto LoadDataImg = [=](std::size_t i) -> CpuMatrix { return cpu_img; };
 
-    pca_transformed_images_ = MatmulPcaEigenvectors(result_pca_.eigenvectors, k_bands, LoadDataImg, cpu_img.size.height * cpu_img.size.width, 1);
+    const ImageSize new_size{.width = cpu_img.size.width, .height = cpu_img.size.height, .channel = k_bands};
+    pca_transformed_images_ = MatmulPcaEigenvectors(result_pca_.eigenvectors, new_size, LoadDataImg, 1);
 
     assert(pca_transformed_images_.size() == 1);
     pca_transformed_window_.Load(pca_transformed_images_[0]);
@@ -2263,7 +2246,7 @@ void MainWindow::ImagePreprocessing()
         const auto mask = RunImageThreshold(cpu_img, threshold_setting);
 
         /// Object on mask
-        auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+        auto cpu_object = GetObjectFromMask(cpu_img, mask);
         cpu_img_objects.push_back(cpu_object);
     }
 }
@@ -2297,7 +2280,7 @@ void MainWindow::RunPca(const std::vector<Entity> &entities_vec)
     /// PCA
     LOG_INFO("Starts PCA");
     auto LoadData = [&](std::size_t i) -> CpuMatrix { assert(i < cpu_img_objects.size()); return cpu_img_objects[i]; };
-    result_pca_ = PCA(LoadData,  max_obj_size.depth, max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
+    result_pca_ = PCA(LoadData,  max_obj_size.channel, max_obj_size.height * max_obj_size.width, cpu_img_objects.size());
 
     /// Get most important eigenvectors
     result_pca_.eigenvectors = GetImportantEigenvectors(result_pca_.eigenvectors, k_bands);
@@ -2346,7 +2329,7 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
     if (add_neighbour_bands_)
     {
         LOG_INFO("Adding neighbour bands for texture analysis");
-        max_img_size.depth *= 9;
+        max_img_size.channel *= 9;
         max_img_size.width = 0;
         max_img_size.height = 1;
 
@@ -2354,12 +2337,13 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
         {
             CpuMatrix cpu_object = [&]() {
                 auto original_img = GetImageData(entity);
-                auto cpu_img = AddNeighboursBand(original_img.GetMatrix(), original_img.size);
+                auto cpu_img = AddNeighboursBand(original_img);
 
                 const auto mask = RunImageThreshold(cpu_img, threshold_setting);
 
                 // Get size of mask
-                float pixel_width = SumAllCuda(mask.GetMatrix());
+                // float pixel_width = SumAllCuda(mask);
+                float pixel_width = SumAllCuda(mask);
                 LOG_INFO("Pixel count in mask {}", pixel_width);
                 if (pixel_width > max_img_size.width)
                 {
@@ -2367,7 +2351,7 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
                 }
 
                 /// Object on mask
-                return GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+                return GetObjectFromMask(cpu_img, mask);
             }();
 
             cpu_img_objects.push_back(std::move(cpu_object));
@@ -2384,7 +2368,7 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
 
             const auto mask = RunImageThreshold(cpu_img, threshold_setting);
 
-            float pixel_width = SumAllCuda(mask.GetMatrix());
+            float pixel_width = SumAllCuda(mask);
             LOG_INFO("Pixel count in mask {}", pixel_width);
             if (pixel_width > max_img_size.width)
             {
@@ -2393,7 +2377,7 @@ std::vector<CpuMatrix> MainWindow::RunThresholding(const std::vector<Entity> &en
 
 
             /// Object on mask
-            auto cpu_object = GetObjectFromMask(cpu_img.GetMatrix(), mask.GetMatrix());
+            auto cpu_object = GetObjectFromMask(cpu_img, mask);
             cpu_img_objects.push_back(cpu_object);
         }
     }

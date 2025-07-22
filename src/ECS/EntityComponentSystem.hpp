@@ -247,7 +247,7 @@ public:
     template<typename T>
     void AddComponent(Entity entity, T component)
     {
-        component_manager_->AddComponent<T>(entity, component);
+        component_manager_->AddComponent<T>(entity, std::move(component));
 
         auto attributes = entity_manager_->GetAttributes(entity);
         attributes.set(component_manager_->GetComponentType<T>(), true);

@@ -18,8 +18,8 @@ TEST_CASE("Calculating mean", "[CUDA]")
 
     float arr_mean[] = {0, 0, 0};
 
-    Matrix cuda_img{3, 3, nullptr};
-    Matrix cuda_mean{3, 1, nullptr};
+    GpuMatrix cuda_img{{3, 1, 3}, nullptr};
+    GpuMatrix cuda_mean{{1, 1, 3}, nullptr};
 
     cudaMalloc(&cuda_img.data, 9 * sizeof(float));
     cudaMemcpy(cuda_img.data, arr, 9 * sizeof(float), cudaMemcpyHostToDevice);
@@ -53,8 +53,8 @@ TEST_CASE("Subtract", "[CUDA]")
     float arr_res[9] = {0};
     float subtract_value[] = {6 / 3.f, 1 / 3.f, 54 / 3.f};
 
-    Matrix img{3, 3, nullptr};
-    Matrix mean{3, 1, nullptr};
+    GpuMatrix img{{3, 1, 3}, nullptr};
+    GpuMatrix mean{{1, 1, 3}, nullptr};
 
     cudaMalloc(&img.data, 9 * sizeof(float));
     cudaMemcpy(img.data, arr, 9 * sizeof(float), cudaMemcpyHostToDevice);
@@ -88,8 +88,8 @@ TEST_CASE("Matmul square matrix", "[CUDA]")
                            0, 0, 0,
                            0, 0, 0};
 
-    Matrix img{3, 3, nullptr};
-    Matrix cov{3, 3, nullptr};
+    GpuMatrix img{{3, 1, 3}, nullptr};
+    GpuMatrix cov{{3, 1,  3}, nullptr};
 
     cudaMalloc(&img.data, 9 * sizeof(float));
     cudaMemcpy(img.data, arr, 9 * sizeof(float), cudaMemcpyHostToDevice);
@@ -105,7 +105,7 @@ TEST_CASE("Matmul square matrix", "[CUDA]")
 
     cudaMemcpy(covariance, cov.data, 9 * sizeof(float), cudaMemcpyDeviceToHost);
 
-    float result[] = {14.f, 32.f,  50.f, 32.f, 77.f, 122.f, 50.f, 122.f, 194.f};
+    constexpr float result[] = {14.f, 32.f,  50.f, 32.f, 77.f, 122.f, 50.f, 122.f, 194.f};
     for (std::size_t i = 0; i < 3; ++i)
     {
         for (std::size_t j = 0; j < 3; ++j)
@@ -134,8 +134,8 @@ TEST_CASE("MatMaulTrans rectangle matrix", "[CUDA]")
     cudaMalloc(&cuda_cov, 12 * sizeof(float));
     cudaMemset(cuda_cov, 0, 9 * sizeof(float));
 
-    const Matrix img{3, 4, cuda_img};
-    const Matrix cov{3, 3, cuda_cov};
+    const GpuMatrix img{{4, 1, 3}, cuda_img};
+    const GpuMatrix cov{{3, 1, 3}, cuda_cov};
 
     dim3 threadsPerBlock(16, 16);
     dim3 numBlocks(1, 1);
@@ -166,13 +166,13 @@ TEST_CASE("Covariance matrix", "[CUDA]")
                                              9, 10, 11, 12}};
 
     float covariance[3 * 3] = {0};
-    CpuMatrix cpu_matrix{.size = {.width = 4, .height = 1, .depth = 3}, .data = arr};
+    CpuMatrix cpu_matrix{.size = {.width = 4, .height = 1, .channel = 3}, .data = arr};
 
     auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
         return cpu_matrix;
     };
 
-    Matrix cov = CovarianceMatrix(LoadFunction, 3, 4, 1);
+    GpuMatrix cov = CovarianceMatrix(LoadFunction, 3, 4, 1);
 
     CudaAssert(cudaMemcpy(covariance, cov.data, 9 * sizeof(float), cudaMemcpyDeviceToHost));
     CudaAssert(cudaFree(cov.data));
@@ -198,13 +198,13 @@ TEST_CASE("Covariance square matrix", "[CUDA]")
 
     float covariance[9] = {0};
 
-    CpuMatrix cpu_matrix{.size = {.width = 3, .height = 1, .depth = 3}, .data = arr};
+    CpuMatrix cpu_matrix{.size = {.width = 3, .height = 1, .channel = 3}, .data = arr};
 
     auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
         return cpu_matrix;
     };
 
-    Matrix cov = CovarianceMatrix(LoadFunction, 3, 3, 1);
+    GpuMatrix cov = CovarianceMatrix(LoadFunction, 3, 3, 1);
 
     CudaAssert(cudaMemcpy(covariance, cov.data, 9 * sizeof(float), cudaMemcpyDeviceToHost));
     CudaAssert(cudaFree(cov.data));
@@ -241,13 +241,13 @@ TEST_CASE("Covariance larger matrix", "[CUDA]")
 
     float covariance[height * height] = {0};
 
-    CpuMatrix cpu_matrix{.size = {.width = 8, .height = 1, .depth = 12}, .data = arr};
+    CpuMatrix cpu_matrix{.size = {.width = 8, .height = 1, .channel = 12}, .data = arr};
 
     auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
         return cpu_matrix;
     };
 
-    Matrix cov = CovarianceMatrix(LoadFunction, height, width, 1);
+    GpuMatrix cov = CovarianceMatrix(LoadFunction, height, width, 1);
 
     CudaAssert(cudaMemcpy(covariance, cov.data, height * height * sizeof(float), cudaMemcpyDeviceToHost));
     CudaAssert(cudaFree(cov.data));
@@ -286,8 +286,8 @@ TEST_CASE("Covariance two input data", "[CUDA]")
                                             0.3171, 0.4387, 0.7952, 0.4456,
                                             0.9502, 0.3816, 0.1869, 0.6463}};
 
-    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .depth = 3}, .data = d1};
-    CpuMatrix cpu_matrix_2{.size = {.width = 4, .height = 1, .depth = 3}, .data = d2};
+    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .channel = 3}, .data = d1};
+    CpuMatrix cpu_matrix_2{.size = {.width = 4, .height = 1, .channel = 3}, .data = d2};
 
     std::vector<CpuMatrix> vec_matrix = {cpu_matrix_1, cpu_matrix_2};
     auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
@@ -296,7 +296,7 @@ TEST_CASE("Covariance two input data", "[CUDA]")
 
     float covariance[9] = {0};
 
-    Matrix cov = CovarianceMatrix(LoadFunction, 3, 4, 2);
+    GpuMatrix cov = CovarianceMatrix(LoadFunction, 3, 4, 2);
 
     CudaAssert(cudaMemcpy(covariance, cov.data, 9 * sizeof(float), cudaMemcpyDeviceToHost));
     CudaAssert(cudaFree(cov.data));
@@ -324,8 +324,8 @@ TEST_CASE("PCA", "[CUDA]")
                                             0.3171, 0.4387, 0.7952, 0.4456,
                                             0.9502, 0.3816, 0.1869, 0.6463}};
 
-    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .depth = 3}, .data = d1};
-    CpuMatrix cpu_matrix_2{.size = {.width = 4, .height = 1, .depth = 3}, .data = d2};
+    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .channel = 3}, .data = d1};
+    CpuMatrix cpu_matrix_2{.size = {.width = 4, .height = 1, .channel = 3}, .data = d2};
 
     std::vector<CpuMatrix> vec_matrix = {cpu_matrix_1, cpu_matrix_2};
     auto LoadFunction = [&](std::size_t i) -> CpuMatrix{
@@ -344,20 +344,18 @@ TEST_CASE("PCA", "[CUDA]")
 
 TEST_CASE("GetObjectFromMask", "[CUDA]")
 {
-    float data[3 * 2] = {1, 2, 3,
-                         4, 5, 6};
+    const std::shared_ptr<float[]> data(new float[]{1, 2, 3, 4, 5, 6});
+    const std::shared_ptr<float[]> m(new float[]{1, 0, 1});
 
-    float m[3] = {1, 0, 1};
-
-    Matrix img{2, 3, data};
-    Matrix mask{1, 3, m};
+    CpuMatrix img{{3, 1, 2}, data};
+    CpuMatrix mask{{3, 1, 1}, m};
 
     CpuMatrix c_new_img = GetObjectFromMask(img, mask);
 
-    float result[4] = {1, 3, 4, 6};
+    const float result[4] = {1, 3, 4, 6};
 
     REQUIRE(c_new_img.size.height * c_new_img.size.width == 2);
-    REQUIRE(c_new_img.size.depth == img.bands_height);
+    REQUIRE(c_new_img.size.channel == img.size.channel);
 
     for (int i = 0; i < 4; ++i)
     {
@@ -368,13 +366,12 @@ TEST_CASE("GetObjectFromMask", "[CUDA]")
 
 TEST_CASE("Thresholding", "[CUDA]")
 {
-    float data[3 * 2] = {1, 2, 3,
-                         4, 5, 6};
+    const std::shared_ptr<float[]> data(new float[]{1, 2, 3, 4, 5, 6});
 
-    Matrix img{2, 3, data};
+    const CpuMatrix img{3, 1, 2, data};
 
-    auto cpu_matrix = ManualThresholding(img, 1, 4);
-    float mask_result[3] = {0, 1, 1};
+    const auto cpu_matrix = ManualThresholding(img, 1, 4);
+    const float mask_result[3] = {0, 1, 1};
 
     assert(cpu_matrix.size.width == 3);
     assert(cpu_matrix.size.height == 1);
@@ -388,25 +385,23 @@ TEST_CASE("Thresholding", "[CUDA]")
 
 TEST_CASE("Thresholding + PCA", "[CUDA]")
 {
-    float data[3 * 2] = {3, 10, -1,
-                         100, 7, 6};
+    const std::shared_ptr<float[]> data(new float[]{3, 10, -1,  100, 7, 6});
 
-    Matrix img{2, 3, data};
+    const CpuMatrix img{3, 1, 2, data};
 
-    auto cpu_mask = ManualThresholding(img, 0, 2.f);
+    const auto cpu_mask = ManualThresholding(img, 0, 2.f);
 
-    Matrix mask = cpu_mask.GetMatrix();
-    float mask_result[3] = {1, 1, 0};
+    const float mask_result[3] = {1, 1, 0};
     for (auto i = 0; i < 3; ++i)
     {
         REQUIRE(cpu_mask.data[i] == mask_result[i]);
     }
 
     auto LoadData = [&](std::size_t i) -> CpuMatrix {
-        return GetObjectFromMask(img, mask);;
+        return GetObjectFromMask(img, cpu_mask);
     };
 
-    auto pca_result = PCA(LoadData, 2, 3, 1);
+    const auto pca_result = PCA(LoadData, 2, 3, 1);
 
     for (int i = 0; i < 2; ++i)
     {
@@ -491,7 +486,7 @@ TEST_CASE("Get important eigenvectors", "[GUI]")
 
     REQUIRE(result.size.width == 3);
     REQUIRE(result.size.height == 2);
-    REQUIRE(result.size.depth == 1);
+    REQUIRE(result.size.channel == 1);
 
     for (std::size_t i = 0; i < 6; ++i)
     {
@@ -509,8 +504,8 @@ TEST_CASE("Thresholding + PCA + projection + statistic_parameters", "[GUI]")
                                             0.3171, 0.4387, 0.7952, 0.4456,
                                             0.9502, 0.3816, 0.1869, 0.6463}};
 
-    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .depth = 3}, .data = d1};
-    CpuMatrix cpu_matrix_2{.size = {.width = 2, .height = 2, .depth = 3}, .data = d2};
+    CpuMatrix cpu_matrix_1{.size = {.width = 2, .height = 2, .channel = 3}, .data = d1};
+    CpuMatrix cpu_matrix_2{.size = {.width = 2, .height = 2, .channel = 3}, .data = d2};
 
 
 
@@ -521,15 +516,15 @@ TEST_CASE("Thresholding + PCA + projection + statistic_parameters", "[GUI]")
     std::vector<CpuMatrix> cpu_img_objects;
     cpu_img_objects.reserve(2);
 
-    const auto mask_1 = ManualThresholding(cpu_matrix_1.GetMatrix(), 1, 0.5);
-    const auto mask_2 = ManualThresholding(cpu_matrix_2.GetMatrix(), 1, 0.5);
+    const auto mask_1 = ManualThresholding(cpu_matrix_1, 1, 0.5);
+    const auto mask_2 = ManualThresholding(cpu_matrix_2, 1, 0.5);
 
 
     /// Object on mask
-    auto cpu_object = GetObjectFromMask(cpu_matrix_1.GetMatrix(), mask_1.GetMatrix());
+    auto cpu_object = GetObjectFromMask(cpu_matrix_1, mask_1);
     cpu_img_objects.push_back(cpu_object);
 
-    cpu_object = GetObjectFromMask(cpu_matrix_2.GetMatrix(), mask_2.GetMatrix());
+    cpu_object = GetObjectFromMask(cpu_matrix_2, mask_2);
     cpu_img_objects.push_back(cpu_object);
 
 
@@ -591,7 +586,7 @@ TEST_CASE("Thresholding + PCA + projection + statistic_parameters", "[GUI]")
 
 TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
 {
-    float old_img[] = {
+    std::shared_ptr<float[]> old_img(new float[]{
          1,  2,  3,  4,  5, // Depth 1
          6,  7,  8,  9, 10,
         11, 12, 13, 14, 15,
@@ -601,18 +596,19 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
          -6,  -7,  -8,  -9, -10,
         -11, -12, -13, -14, -15,
         -16, -17, -18, -19, -20
-    };
-    ImageSize old_size = {5, 4, 2};
-    ImageSize new_size = {5-2, 4-2, 2 * 9};
+    });
 
-    Matrix mat{.bands_height = 2, .pixels_width = 20, .data = old_img};
+    const ImageSize old_size = {5, 4, 2};
+    const ImageSize new_size = {5-2, 4-2, 2 * 9};
 
-    const CpuMatrix cpu_mat = AddNeighboursBand(mat, old_size);
+    const CpuMatrix mat{{4, 5, 2}, .data = old_img};
+
+    const CpuMatrix cpu_mat = AddNeighboursBand(mat);
 
     REQUIRE(cpu_mat.data != nullptr);
 
     float expected_img[] = {
-        // Mid center
+        // Mid-center
          7,  8,  9, 12, 13, 14, // Band 1
          -7,  -8,  -9, -12, -13, -14, // Band2
         // Up left
@@ -641,7 +637,7 @@ TEST_CASE("Mapping new pixel to old pixel", "[CUDA]")
         -13, -14, -15, -18, -19, -20
     };
 
-    for (std::size_t i = 0; i < new_size.width * new_size.height * new_size.depth; ++i)
+    for (std::size_t i = 0; i < new_size.width * new_size.height * new_size.channel; ++i)
     {
         REQUIRE(cpu_mat.data[i] == expected_img[i]);
     }

@@ -12,12 +12,9 @@
 #include <filesystem>
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
-#include <fstream>
-#include <concepts>
 #include <map>
 
 #include <cereal/types/vector.hpp>
-
 
 #ifndef NDEBUG
 [[always_inline]]
@@ -45,127 +42,100 @@ inline void CusolverAssert(const cusolverStatus_t code)
     }
 }
 
-
 struct CpuMatrix;
 
-[[nodiscard]] Entity CreateImage(const FilesystemPaths &paths);
 
-[[nodiscard]] std::shared_ptr<float[]> LoadImage(const std::filesystem::path &path, const EnviHeader &envi);
+[[nodiscard]]
+Entity CreateImage(const FilesystemPaths &paths);
 
-[[nodiscard]] std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi);
+[[nodiscard]]
+std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi);
 
-[[nodiscard]] CpuMatrix GetImageData(Entity entity);
-
-template<typename T>
-[[nodiscard]] std::shared_ptr<float[]> LoadImageType(std::istream &iss, const EnviHeader &envi)
-{
-    assert(envi.byte_order == ByteOrder::LITTLE_ENDIAN);
-
-    std::shared_ptr<float[]> host_data{new float[envi.bands_number *
-                                       envi.lines_per_image *
-                                       envi.samples_per_image]};
-
-    std::function<float*(std::size_t, std::size_t, std::size_t)> access_scheme;
-
-    std::size_t dim1, dim2, dim3;
-    switch (envi.interleave)
-    {
-        case Interleave::BSQ:
-            dim1 = envi.bands_number;
-            dim2 = envi.lines_per_image;
-            dim3 = envi.samples_per_image;
-            access_scheme = [&, lines_samples=dim2 * dim3, samples=dim3](std::size_t i, std::size_t j, std::size_t k) -> float* {
-                return host_data.get() + i * lines_samples  + j * samples + k;
-            };
-            break;
-        case Interleave::BIP:
-            dim1 = envi.lines_per_image;
-            dim2 = envi.samples_per_image;
-            dim3 = envi.bands_number;
-            access_scheme = [&, lines_samples=dim2 * dim3, samples=dim3](std::size_t i, std::size_t j, std::size_t k) -> float* {
-                return host_data.get() + k * lines_samples + i * samples + j;
-            };
-            break;
-        case Interleave::BIL:
-            dim1 = envi.lines_per_image;
-            dim2 = envi.bands_number;
-            dim3 = envi.samples_per_image;
-            access_scheme = [&, lines_samples=dim2 * dim3, samples=dim3](std::size_t i, std::size_t j, std::size_t k) -> float* {
-                return host_data.get() + j * lines_samples + i * samples + k;
-            };
-            break;
-    }
-
-    // TODO: add bit order
-    T value{};
-    for (std::size_t i = 0; i < dim1; ++i)
-    {
-        for (std::size_t j = 0; j < dim2; ++j)
-        {
-            for (std::size_t k = 0; k < dim3; ++k)
-            {
-                iss.read(reinterpret_cast<char*>(&value), sizeof(T));
-                *access_scheme(i, j, k) = static_cast<float>(value);
-            }
-        }
-    }
-    return std::move(host_data);
-}
+[[nodiscard]]
+CpuMatrix GetImageData(Entity entity);
 
 
+// TODO v2: rework as component - delete redundant imagesize
 /**
-* @param height first dimension of matrix
-* @param width second dimension of matrix
-* @param data pointer to flatten 2D array of size \a height times \a width
+* @param size corresponds as size of flatten \a data
+* @param data cuda pointer to flatten 3D array
 */
-struct Matrix
+struct GpuMatrix
 {
-    std::size_t bands_height;
-    std::size_t pixels_width;
+    ImageSize size;
     float *data;
-};
 
-[[nodiscard]] CpuMatrix GetCpuMatrix(ImageSize size);
+    [[nodiscard]] __device__
+    float& get(std::size_t ch, std::size_t h, std::size_t w) const
+    {
+        const auto idx = ch * (size.width * size.height) + h* size.width + w;
+        return data[idx];
+    }
+
+    [[nodiscard]] __device__
+    float& get(std::size_t ch, std::size_t pixel) const
+    {
+        const auto idx = ch * size.height * size.width + pixel;
+        return data[idx];
+    }
+
+    [[nodiscard]] __host__ __device__
+    std::size_t elements() const { return size.width * size.height * size.channel; }
+
+    [[nodiscard]]
+    float* begin() const { return data;}
+
+    [[nodiscard]]
+    float* end() const { return data + (size.width * size.height * size.channel);}
+};
 
 struct CpuMatrix
 {
     ImageSize size;
     std::shared_ptr<float[]> data;
 
-    Matrix GetMatrix() const;
-
-    template<class Archive>
-    void serialize(Archive & archive)
+    [[nodiscard]] __host__
+    float& get(std::size_t ch, std::size_t h, std::size_t w) const
     {
-        const auto [width, height, depth] = size;
-        std::vector<float> img_data{data.get(), data.get() + width * height * depth};
-        archive(size, CEREAL_NVP(img_data));
+        return data[FlattenIdx(size, ch, h, w)];
     }
+
+    [[nodiscard]] __host__
+    std::size_t elements() const { return size.width * size.height * size.channel; }
+
+    // TODO: make it free function - maybe separate file ? The fuck is this
+    // template<class Archive>
+    // void serialize(Archive & archive)
+    // {
+    //     const auto [width, height, depth] = size;
+    //     std::vector<float> img_path{data.get(), data.get() + width * height * depth};
+    //     archive(size, CEREAL_NVP(img_path));
+    // }
 };
 
-template<typename Fn, typename ...Args>
-concept ReturnsMatrix = std::same_as<std::invoke_result_t<Fn, Args...>, Matrix>;
-
-template<typename Fn, Fn fn, typename... Args>
-requires ReturnsMatrix<Fn, Args...>
-[[nodiscard]]
-CpuMatrix CudaMatrixToCpu(ImageSize size, Args&&... args)
-{
-    CpuMatrix cpu_matrix{
-        size,
-        std::shared_ptr<float[]>(new float[size.width * size.height * size.depth])
-    };
-
-    Matrix matrix = fn(std::forward<Args>(args)...);
-
-    assert(matrix.data != nullptr);
-    assert(matrix.bands_height * matrix.pixels_width == size.width * size.height * size.depth);
-
-    CudaAssert(cudaMemcpy(cpu_matrix.data.get(), matrix.data, sizeof(float) * size.width * size.height * size.depth, cudaMemcpyDeviceToHost));
-    cudaFree(matrix.data);
-
-    return std::move(cpu_matrix);
-}
+// template<typename Fn, typename ...Args>
+// concept ReturnsMatrix = std::same_as<std::invoke_result_t<Fn, Args...>, GpuMatrix>;
+//
+// template<typename Fn, Fn fn, typename... Args>
+// requires ReturnsMatrix<Fn, Args...>
+// [[nodiscard]]
+// CpuMatrix CudaMatrixToCpu(ImageSize size, Args&&... args)
+// {
+//     CpuMatrix cpu_matrix{
+//         size,
+//         std::shared_ptr<float[]>(new float[size.width * size.height * size.channel])
+//     };
+//
+//     GpuMatrix matrix = fn(std::forward<Args>(args)...);
+//
+//     assert(matrix.data != nullptr);
+//     assert(matrix.bands_height * matrix.pixels_width == size.width * size.height * size.channel);
+//
+//     CudaAssert(cudaMemcpy(cpu_matrix.data.get(), matrix.data, sizeof(float) * size.width * size.height * size.channel, cudaMemcpyDeviceToHost));
+//     cudaFree(matrix.data);
+//
+//     return std::move(cpu_matrix);
+// }
 
 
 /**
@@ -175,7 +145,7 @@ CpuMatrix CudaMatrixToCpu(ImageSize size, Args&&... args)
  * @param mean matrix of computed means with \a mean.height = img.height and \a mean.width = \a 1
  * @return mean
  */
-__global__ void Mean(Matrix img, Matrix mean);
+__global__ void Mean(GpuMatrix img, GpuMatrix mean);
 
 /**
  * @brief Subtracts \a mean values from \a img in place.
@@ -183,13 +153,13 @@ __global__ void Mean(Matrix img, Matrix mean);
  * @param mean input matrix, with size \a mean.heigth = img.height, \a mean.width = \a 1
  * @return img
  */
-__global__ void SubtractMean(Matrix img, Matrix mean);
+__global__ void SubtractMean(GpuMatrix img, GpuMatrix mean);
 
 
 /**
  * @brief Performs piecewise division of values in matrix
  */
-__global__ void PieceWiseDivision(Matrix m, float divisor);
+__global__ void PieceWiseDivision(GpuMatrix m, float divisor);
 
 /**
  * @brief Computes matrix multiplication of \a img with transposed \a img.
@@ -197,18 +167,15 @@ __global__ void PieceWiseDivision(Matrix m, float divisor);
  * @param result result of computed matrix multiplication
  * @param data_count count of images that will be processed
  */
-__global__ void MatMulTrans(Matrix img, Matrix result);
+__global__ void MatMulTrans(GpuMatrix img, GpuMatrix result);
 
-[[nodiscard]] CpuMatrix MultiplyMask(CpuMatrix threshold_mask, CpuMatrix segmentation_mask);
+[[nodiscard]]
+CpuMatrix MultiplyMask(CpuMatrix threshold_mask, CpuMatrix segmentation_mask);
 
-[[nodiscard]] float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, float gamma);
+[[nodiscard]]
+float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, float gamma);
 
-struct ResultPCA
-{
-    CpuMatrix eigenvalues;
-    CpuMatrix eigenvectors;
-};
-
+// TODO: rework -> non public api
 /**
 * @brief Calculates covariance matrix of input. Width of input matrix must be observations(pixels) and height
 * variables.
@@ -220,8 +187,15 @@ struct ResultPCA
 * @param data_count number of input images
 * @return Matrix with size \a height times \a height. Ptr is allocated on device memory and must be freed manually using cudaFree()!
 */
-[[nodiscard]] Matrix CovarianceMatrix(std::function<CpuMatrix(std::size_t)> LoadData,
+[[nodiscard]]
+GpuMatrix CovarianceMatrix(std::function<CpuMatrix(std::size_t)> LoadData,
                                       uint32_t max_height, uint32_t max_width, std::size_t data_count);
+
+struct ResultPCA
+{
+    CpuMatrix eigenvalues;
+    CpuMatrix eigenvectors;
+};
 
 /**
 * @brief performs PCA
@@ -231,25 +205,32 @@ struct ResultPCA
 * @param data_count number of input images.
 * @result returns eigenvalues sorted in ascending order and eigenvectors
 */
-[[nodiscard]] ResultPCA PCA(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_height, uint32_t max_width, std::size_t data_count);
+[[nodiscard]]
+ResultPCA PCA(std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_height, uint32_t max_width, std::size_t data_count);
 
 
-[[nodsicard]] CpuMatrix ManualThresholding(Matrix img, std::size_t band, float threshold);
+[[nodsicard]]
+CpuMatrix ManualThresholding(CpuMatrix img, std::size_t band, float threshold);
 
-[[nodiscard]] std::size_t SumAll(Matrix img);
 
-__global__ void ConcatNeighboursBand(Matrix img, ImageSize old_size, ImageSize new_size);
+__global__ void ConcatNeighboursBand(GpuMatrix img, ImageSize new_size);
 
-[[nodiscard]] CpuMatrix AddNeighboursBand(Matrix img, ImageSize size);
+[[nodiscard]]
+CpuMatrix AddNeighboursBand(CpuMatrix img);
 
-[[nodiscard]] CpuMatrix GetObjectFromMask(Matrix img, Matrix mask);
+[[nodiscard]]
+CpuMatrix GetObjectFromMask(CpuMatrix img, CpuMatrix mask);
 
-[[nodiscard]] std::vector<CpuMatrix> MatmulPcaEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_bands,
-               std::function<CpuMatrix(std::size_t)> LoadData, uint32_t max_pixels, std::size_t data_count);
+[[nodiscard]]
+std::vector<CpuMatrix> MatmulPcaEigenvectors(const CpuMatrix &eigenvectors, ImageSize new_size,
+    std::function<CpuMatrix(std::size_t)> LoadData, std::size_t data_count);
 
-[[nodsicard]] CpuMatrix GetImportantEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_bands);
+[[nodsicard]]
+CpuMatrix GetImportantEigenvectors(const CpuMatrix &eigenvectors, std::size_t k_bands);
 
-[[nodiscard]] float SumAllCuda(Matrix data);
+// TOOD: is it really needed ???
+[[nodiscard]]
+float SumAllCuda(CpuMatrix data);
 
 struct StatisticalParameters
 {
@@ -270,16 +251,18 @@ struct StatisticalParameters
     }
 };
 
-__global__ void CalculateFourMovements(Matrix img, Matrix result);
+__global__ void CalculateFourMovements(GpuMatrix img, GpuMatrix result);
 
 /**
  * @brief Calculates \a StatisticalParameter used in classification algorithm
  * @param cpu_img band is result from projection after PCA,
  * @return vector of statistic parameters for each principal component (band) in \a cpu_img
  */
-[[nodiscard]] std::vector<StatisticalParameters> GetStatistics(const CpuMatrix& cpu_img);
+[[nodiscard]]
+std::vector<StatisticalParameters> GetStatistics(const CpuMatrix& cpu_img);
 
 
+// TODO: clean up this mess
 class ImageLabel
 {
 public:
@@ -298,11 +281,14 @@ class PatchSystem
 public:
     PatchSystem(Entity parent_img);
 
-    [[nodiscard]] std::size_t GetPatchNumbers(ImageSize size);
+    [[nodiscard]]
+    std::size_t GetPatchNumbers(ImageSize size);
 
-    [[nodiscard]] CpuMatrix GetPatchImage(int center_x, int center_y) const;
+    [[nodiscard]]
+    CpuMatrix GetPatchImage(int center_x, int center_y) const;
 
-    [[nodiscard]] PatchData GeneratePatch(ImageSize size, std::size_t patch_idx);
+    [[nodiscard]]
+    PatchData GeneratePatch(ImageSize size, std::size_t patch_idx);
 
     const Entity parent_img;
 
@@ -326,13 +312,15 @@ private:
 
 
 
-[[nodiscard]] std::vector<float> CudaSvmFunctionValue(const ObjectList &object_list, const SVM &svm, float gamma);
+[[nodiscard]]
+std::vector<float> CudaSvmFunctionValue(const ObjectList &object_list, const SVM &svm, float gamma);
 
 
 /**
 * @brief HSI segmentation using Spectral Angle Mapper
 * @return mask - value of 0 - does not belong in class, 1 - belongs to class of central pixel
 */
-[[nodiscard]] CpuMatrix SegmentationSAM(CpuMatrix img, float radian_threshold);
+[[nodiscard]]
+CpuMatrix SegmentationSAM(CpuMatrix img, float radian_threshold);
 
 #endif //HYPERSPECTRAL_IMAGE_HPP

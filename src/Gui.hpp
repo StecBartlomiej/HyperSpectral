@@ -28,6 +28,7 @@ void DeleteTexture(GLuint texture);
 
 void LoadTextureGrayF32(GLuint texture,uint32_t width, uint32_t height, const float* data);
 
+// TODO
 class GuiImage
 {
 public:
@@ -49,6 +50,7 @@ protected:
 void LoadOpenGLTexture(float *data, ImageSize size, GLuint texture, std::size_t selected_band);
 
 
+// TODO: should hold cpu_image
 class Image
 {
 public:
@@ -68,6 +70,8 @@ public:
 
 private:
     GLuint texture_ = CreateTexture();
+    // TODO: Change to CpuImage
+    // CpuMatrix image_{{0, 0, 1}, nullptr};
     ImageSize image_size_{0, 0, 1};
     std::shared_ptr<float[]> image_data_;
     uint32_t selected_band_ = 1;

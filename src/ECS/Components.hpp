@@ -14,9 +14,9 @@ struct FilesystemPaths
 
 struct ImageSize
 {
-    uint32_t width;
-    uint32_t height;
-    uint32_t depth;
+    std::size_t width;
+    std::size_t height;
+    std::size_t channel;
 
     template<class Archive>
     void serialize(Archive & archive)
@@ -24,9 +24,12 @@ struct ImageSize
         archive(
             CEREAL_NVP(width),
             CEREAL_NVP(height),
-            CEREAL_NVP(depth));
+            CEREAL_NVP(channel));
     }
 };
+
+[[nodiscard]]
+std::size_t FlattenIdx(ImageSize img, std::size_t channel, std::size_t height, std::size_t width);
 
 struct PatchData
 {
@@ -41,7 +44,8 @@ struct PatchLabel
     Entity img;
 };
 
-[[nodiscard]] bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept;
+[[nodiscard]]
+bool operator==(const ImageSize &lhs, const ImageSize &rhs) noexcept;
 
 void RegisterComponents();
 
