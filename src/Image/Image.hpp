@@ -1,10 +1,9 @@
 #ifndef HYPERSPECTRAL_IMAGE_HPP
 #define HYPERSPECTRAL_IMAGE_HPP
 
-#include <Classification.hpp>
 
 #include "Logger.hpp"
-#include "Parser/EnviHeader.hpp"
+#include "EnviHeader.hpp"
 #include "Components.hpp"
 #include "EntityComponentSystem.hpp"
 
@@ -172,8 +171,8 @@ __global__ void MatMulTrans(GpuMatrix img, GpuMatrix result);
 [[nodiscard]]
 CpuMatrix MultiplyMask(CpuMatrix threshold_mask, CpuMatrix segmentation_mask);
 
-[[nodiscard]]
-float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, float gamma);
+// [[nodiscard]]
+// float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, float gamma);
 
 // TODO: rework -> non public api
 /**
@@ -312,8 +311,8 @@ private:
 
 
 
-[[nodiscard]]
-std::vector<float> CudaSvmFunctionValue(const ObjectList &object_list, const SVM &svm, float gamma);
+// [[nodiscard]]
+// std::vector<float> CudaSvmFunctionValue(const ObjectList &object_list, const SVM &svm, float gamma);
 
 
 /**

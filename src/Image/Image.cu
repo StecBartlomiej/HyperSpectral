@@ -1,20 +1,22 @@
 #include "Image.hpp"
 
-#include <cassert>
-#include <Classification.hpp>
-#include <EntityComponentSystem.hpp>
-#include <filesystem>
-#include <string>
-
-#include <map>
-#include <numeric>
-#include <span>
-#include <cmath>
+// #include "Classification.hpp"
+#include "EntityComponentSystem.hpp"
 
 #include <thrust/transform.h>
 #include <thrust/device_vector.h>
 #include <thrust/functional.h>
 #include <thrust/execution_policy.h>
+
+#include <cassert>
+#include <filesystem>
+#include <string>
+#include <map>
+#include <numeric>
+#include <span>
+#include <cmath>
+#include <fstream>
+
 
 /// Stupid winapi macro name
 #undef LoadImage
@@ -602,11 +604,13 @@ __global__ void MulImages(GpuMatrix img, std::size_t* position, std::size_t pos_
 
 CpuMatrix GetObjectFromMask(CpuMatrix img, CpuMatrix mask)
 {
-    assert(img.pixels_width == mask.pixels_width);
+    assert(img.size.width == mask.size.width);
+    assert(img.size.height == mask.size.height);
 
     const std::vector<std::size_t> position = [&mask]() -> std::vector<std::size_t> {
-        assert(mask.pixels_width > 0);
-        assert(mask.bands_height == 1);
+        assert(mask.size.width > 0);
+        assert(mask.size.height > 0);
+        assert(mask.size.channel == 1);
 
         std::vector<std::size_t> position;
         for (std::size_t i = 0; i < mask.size.width * mask.size.height; ++i)
@@ -649,9 +653,11 @@ CpuMatrix GetObjectFromMask(CpuMatrix img, CpuMatrix mask)
 
 __global__ void MatMul(const GpuMatrix a, const GpuMatrix b, const GpuMatrix c)
 {
-    assert(a.pixels_width == b.bands_height);
-    assert(a.bands_height == c.bands_height);
-    assert(b.pixels_width== c.pixels_width);
+    assert(a.size.width * a.size.height == b.size.channel);
+    assert(a.size.channel == c.size.channel);
+
+    assert(b.size.width == c.size.width);
+    assert(b.size.height == c.size.height);
 
     const std::size_t x = blockIdx.x * blockDim.x + threadIdx.x;
     const std::size_t ch = blockIdx.y * blockDim.y + threadIdx.y;
@@ -676,7 +682,7 @@ std::vector<CpuMatrix> MatmulPcaEigenvectors(const CpuMatrix &eigenvectors, Imag
 
     const auto bands = eigenvectors.size.width;
     assert(data_count >= 1);
-    assert(k_bands < bands);
+    assert(new_size.channel < bands);
 
     auto blocking_load_img = [&, new_size](std::size_t i, GpuMatrix &img) {
         const auto [size, ptr] = LoadData(i);
@@ -954,23 +960,23 @@ CpuMatrix PatchSystem::GetPatchImage(int center_x, int center_y) const
     return std::move(result);
 }
 
-float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, const float gamma)
-{
-    assert(!a1.empty() && !a2.empty());
-    assert(a1.size() == a2.size());
-
-    auto power_2 = []  __host__ __device__ (float x) { return x * x; };
-
-    std::vector<float> difference(a1.size(), 0);
-    thrust::transform(thrust::host, a1.begin(), a1.end(), a2.begin(), difference.begin(), thrust::minus<float>());
-
-    auto begin_iter = thrust::make_transform_iterator(difference.begin(), power_2);
-    auto end_iter = thrust::make_transform_iterator(difference.end(), power_2);
-
-    const float l2_power = thrust::reduce(begin_iter, end_iter, 0.f);
-
-    return std::exp(-gamma * l2_power);
-}
+// float KernelRbfThrust(const AttributeList &a1, const AttributeList &a2, const float gamma)
+// {
+//     assert(!a1.empty() && !a2.empty());
+//     assert(a1.size() == a2.size());
+//
+//     auto power_2 = []  __host__ __device__ (float x) { return x * x; };
+//
+//     std::vector<float> difference(a1.size(), 0);
+//     thrust::transform(thrust::host, a1.begin(), a1.end(), a2.begin(), difference.begin(), thrust::minus<float>());
+//
+//     auto begin_iter = thrust::make_transform_iterator(difference.begin(), power_2);
+//     auto end_iter = thrust::make_transform_iterator(difference.end(), power_2);
+//
+//     const float l2_power = thrust::reduce(begin_iter, end_iter, 0.f);
+//
+//     return std::exp(-gamma * l2_power);
+// }
 
 
 CpuMatrix MultiplyMask(CpuMatrix threshold_mask, CpuMatrix segmentation_mask)

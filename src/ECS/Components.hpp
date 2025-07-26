@@ -1,15 +1,16 @@
 #ifndef COMPONENTS_HPP
 #define COMPONENTS_HPP
 
-#include <EntityComponentSystem.hpp>
+#include "EntityComponentSystem.hpp"
+
 #include <filesystem>
 #include <cereal/cereal.hpp>
 
 
 struct FilesystemPaths
 {
-    std::filesystem::path envi_header;
-    std::filesystem::path img_data;
+    std::filesystem::path envi_path;
+    std::filesystem::path img_path;
 };
 
 struct ImageSize
