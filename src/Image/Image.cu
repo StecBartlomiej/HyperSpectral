@@ -52,10 +52,11 @@ Entity CreateImage(const FilesystemPaths &paths)
 }
 
 
-std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi)
+CpuMatrix LoadHyperspectralImage(std::istream& iss, const EnviHeader& envi)
 {
     assert(envi.byte_order == ByteOrder::LITTLE_ENDIAN);
 
+    ImageSize image_size = {.width = envi.samples_per_image, .height = envi.lines_per_image, .channel = envi.bands_number};
     std::shared_ptr<float[]> host_data{new float[envi.bands_number *
                                        envi.lines_per_image *
                                        envi.samples_per_image]};
@@ -143,20 +144,19 @@ std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi)
         case DataType::COMPLEX32:
         case DataType::COMPLEX64:
             LOG_ERROR("LoadImage unsupported data type: {}", static_cast<int>(envi.data_type));
-            return nullptr;
+            throw std::runtime_error("LoadImage unsupported data type");
     }
-    return host_data;
+    return {image_size, host_data};
 }
 
 CpuMatrix GetImageData(const Entity entity)
 {
     static std::map<Entity, std::weak_ptr<float[]>> loaded_img{};
 
-    const auto &size = coordinator.GetComponent<ImageSize>(entity);
-
     const auto iter = loaded_img.find(entity);
     if (iter != loaded_img.end() && !iter->second.expired())
     {
+        const auto &size = coordinator.GetComponent<ImageSize>(entity);
         return CpuMatrix{size, iter->second.lock()};
     }
 
@@ -166,10 +166,10 @@ CpuMatrix GetImageData(const Entity entity)
     std::ifstream file{path, std::ios_base::binary | std::ios::in};
     assert(file.is_open());
 
-    std::shared_ptr<float[]> ptr = LoadImage(file, envi);
-    loaded_img[entity] = ptr;
+    const CpuMatrix image = LoadHyperspectralImage(file, envi);
+    loaded_img[entity] = image.data;
 
-    return CpuMatrix{size, std::move(ptr)};
+    return image;
 }
 
 

@@ -40,7 +40,7 @@ set_target_properties(cuda_interface PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 target_compile_options(cuda_interface INTERFACE $<$<COMPILE_LANGUAGE:CUDA>: --extended-lambda>)
 
 # ==========================================
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui OpenGLWidgets Charts)
 qt_standard_project_setup()
 
 set(CMAKE_AUTOMOC ON)

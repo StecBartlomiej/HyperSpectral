@@ -1,18 +1,31 @@
 #include "MainWindow.hpp"
 
 #include "Components.hpp"
+#include "ViewImageWidget.hpp"
 
 #include <QApplication>
-#include <QPushButton>
+#include <QTabWidget>
 
 
-int gui::Run(int argc, char *argv[])
+int Run(int argc, char *argv[])
 {
     QApplication app(argc, argv);
 
-    QPushButton hello("Hello world!");
-    hello.resize(100, 30);
+    MainWindow window{};
+    window.resize(800, 600);
 
-    hello.show();
+    window.show();
+
     return app.exec();
+}
+
+MainWindow::MainWindow(QWidget* parent): QMainWindow(parent), viewImageWidget_(new ViewImageWidget(this))
+{
+    QTabWidget *tabWidget = new QTabWidget(this);
+
+
+    tabWidget->addTab(viewImageWidget_, tr("Viewer"));
+
+    setCentralWidget(tabWidget);
+    setWindowTitle(tr("Hyperspectral"));
 }

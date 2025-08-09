@@ -8,5 +8,5 @@ Coordinator coordinator{};
 int main(int argc, char *argv[])
 {
     Logger::Init(spdlog::level::trace);
-    return gui::Run(argc, argv);
+    return Run(argc, argv);
 }

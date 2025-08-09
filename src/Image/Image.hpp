@@ -48,7 +48,7 @@ struct CpuMatrix;
 Entity CreateImage(const FilesystemPaths &paths);
 
 [[nodiscard]]
-std::shared_ptr<float[]> LoadImage(std::istream &iss, const EnviHeader &envi);
+CpuMatrix LoadHyperspectralImage(std::istream &iss, const EnviHeader &envi);
 
 [[nodiscard]]
 CpuMatrix GetImageData(Entity entity);
