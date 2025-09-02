@@ -17,6 +17,9 @@
    <item>
     <layout class="QVBoxLayout" name="verticalLayout">
      <item>
+      <widget class="QComboBox" name="comboBox"/>
+     </item>
+     <item>
       <widget class="ImageOpenGL" name="openGLWidget">
        <property name="sizePolicy">
         <sizepolicy hsizetype="Preferred" vsizetype="Preferred">

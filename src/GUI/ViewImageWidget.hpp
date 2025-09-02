@@ -23,8 +23,6 @@ public:
 
     ~ImageOpenGL() override;
 
-    void SetImage(const CpuMatrix& image);
-
 signals:
     void NewImageSize(ImageSize img);
 
@@ -38,6 +36,8 @@ protected:
 
     void paintGL() override;
 
+    void SetImage(CpuMatrix image);
+
 private:
     QOpenGLShaderProgram* program;
     CpuMatrix image_;
@@ -50,8 +50,14 @@ private:
 
 class ViewImageWidget : public QWidget
 {
+    Q_OBJECT
 public:
     ViewImageWidget(QWidget *parent);
+
+public slots:
+    void AddImage(Entity entity);
+
+    void DeleteImage(Entity entity);
 
 private:
     Ui::HyperspectralViewImage *ui;

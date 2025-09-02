@@ -11,6 +11,10 @@
 #include <fstream>
 
 #include "EnviHeader.hpp"
+#include "Image.hpp"
+
+
+extern Coordinator coordinator;
 
 
 ImageOpenGL::ImageOpenGL(QWidget* parent): QOpenGLWidget(parent), program(nullptr), texId(0)
@@ -27,7 +31,7 @@ ImageOpenGL::~ImageOpenGL()
     delete program;
 }
 
-void ImageOpenGL::SetImage(const CpuMatrix& image)
+void ImageOpenGL::SetImage(CpuMatrix image)
 {
     assert(image.size.width > 0 && image.size.height > 0);
     assert(image.data != nullptr);
@@ -148,7 +152,9 @@ void ImageOpenGL::ChangeChannel(int new_channel)
 
 void ImageOpenGL::LoadImage(Entity entity)
 {
-    throw std::runtime_error("ImageOpenGL::LoadImage Not implemented");
+    const CpuMatrix img = GetImageData(entity);
+    assert(img.data != nullptr);
+    SetImage(img);
 }
 
 ViewImageWidget::ViewImageWidget(QWidget* parent): QWidget{parent}, ui{new Ui::HyperspectralViewImage()}
@@ -164,12 +170,20 @@ ViewImageWidget::ViewImageWidget(QWidget* parent): QWidget{parent}, ui{new Ui::H
         ui->horizontalSlider->setRange(0, static_cast<int>(size.channel) - 1);
     });
 
-    std::ifstream data_file("D:/Praca inzynierska/HSI images/img2.dat", std::ifstream::binary);
-    const auto opt_envi = LoadEnvi("D:/Praca inzynierska/HSI images/img2.hdr");
+    connect(ui->comboBox, &QComboBox::currentIndexChanged, ui->openGLWidget, [=](int index) {
+        const QVariant v = ui->comboBox->itemData(index);
+        const Entity entity = v.value<Entity>();
+        ui->openGLWidget->LoadImage(entity);
+    });
+}
 
-    assert(opt_envi.has_value());
+void ViewImageWidget::AddImage(Entity entity)
+{
+    const auto &paths = coordinator.GetComponent<FilesystemPaths>(entity);
+    ui->comboBox->addItem(QString::fromStdString(paths.img_path.filename().string()), QVariant(entity));
+}
 
-    auto image = LoadHyperspectralImage(data_file, opt_envi.value());
-    ui->openGLWidget->SetImage(image);
-
+void ViewImageWidget::DeleteImage(Entity entity)
+{
+    ui->comboBox->removeItem(entity);
 }

@@ -4,12 +4,15 @@
 
 #include <QMainWindow>
 
+#include "ImageManager.hpp"
 
-[[noreturn]]
+
 int Run(int argc, char *argv[]);
 
 
 class ViewImageWidget;
+class ImageManager;
+
 
 class MainWindow: public QMainWindow
 {
@@ -18,6 +21,7 @@ public:
 
 private:
     ViewImageWidget *viewImageWidget_;
+    ImageManager *imageManager_;
 };
 
 #endif //MAINWINDOW_H

@@ -2,7 +2,9 @@
 set(SOURCE_FILES
         MainWindow.cpp
         ViewImageWidget.cpp
+        ImageManager.cpp
         view_image.ui
+        ImageManager.ui
 )
 
 add_library(hyper_gui STATIC ${SOURCE_FILES})
