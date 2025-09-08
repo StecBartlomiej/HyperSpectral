@@ -5,6 +5,7 @@
 #include <QMainWindow>
 
 #include "ImageManager.hpp"
+#include "ImageProcessing.hpp"
 
 
 int Run(int argc, char *argv[]);
@@ -22,6 +23,7 @@ public:
 private:
     ViewImageWidget *viewImageWidget_;
     ImageManager *imageManager_;
+    ImageProcessing *imageProcessing_;
 };
 
 #endif //MAINWINDOW_H

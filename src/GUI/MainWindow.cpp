@@ -23,15 +23,19 @@ int Run(int argc, char *argv[])
 MainWindow::MainWindow(QWidget* parent):
             QMainWindow(parent),
             viewImageWidget_(new ViewImageWidget(this)),
-            imageManager_(new ImageManager(this))
+            imageManager_(new ImageManager(this)),
+            imageProcessing_(new ImageProcessing(this))
 {
     QTabWidget *tabWidget = new QTabWidget(this);
 
 
     tabWidget->addTab(imageManager_, tr("Manger"));
     tabWidget->addTab(viewImageWidget_, tr("Viewer"));
+    tabWidget->addTab(imageProcessing_, tr("Image Processing"));
 
     connect(imageManager_, &ImageManager::AddedNewImage, viewImageWidget_, &ViewImageWidget::AddImage);
+    connect(imageManager_, &ImageManager::AddedNewImage, imageProcessing_, &ImageProcessing::AddImage);
+
     connect(imageManager_, &ImageManager::DeletedImage, viewImageWidget_, &ViewImageWidget::DeleteImage);
 
     setCentralWidget(tabWidget);

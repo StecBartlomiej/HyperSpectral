@@ -3,11 +3,16 @@ set(SOURCE_FILES
         MainWindow.cpp
         ViewImageWidget.cpp
         ImageManager.cpp
-        view_image.ui
-        ImageManager.ui
+        ImageProcessing.cpp
 )
 
-add_library(hyper_gui STATIC ${SOURCE_FILES})
+set(UI_FILES
+        view_image.ui
+        ImageManager.ui
+        ImageProcessing.ui
+)
+
+add_library(hyper_gui STATIC ${SOURCE_FILES} ${UI_FILES})
 
 target_include_directories(hyper_gui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
