@@ -3,6 +3,7 @@
 
 #include "EntityComponentSystem.hpp"
 
+#include <memory>
 #include <filesystem>
 #include <cereal/cereal.hpp>
 
@@ -28,6 +29,7 @@ struct ImageSize
             CEREAL_NVP(channel));
     }
 };
+
 
 [[nodiscard]]
 std::size_t FlattenIdx(ImageSize img, std::size_t channel, std::size_t height, std::size_t width);

@@ -32,7 +32,7 @@ include(GetDependency)
 
 
 add_subdirectory(src)
-#add_subdirectory(tests)
+add_subdirectory(tests)
 
 add_executable(hypercpp main.cpp)
 target_link_libraries(hypercpp PRIVATE hyper_utility hyper_ecs hyper_gui )

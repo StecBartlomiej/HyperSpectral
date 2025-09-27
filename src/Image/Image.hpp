@@ -12,6 +12,7 @@
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
 #include <map>
+#include <source_location>
 
 #include <cereal/types/vector.hpp>
 
@@ -23,7 +24,9 @@ inline void CudaAssert(const cudaError_t code) \
 {
     if (code != cudaSuccess)
     {
-        LOG_ERROR("CUDA assert {} at {}:{}\n", cudaGetErrorString(code), __FILE__, __LINE__);
+        const auto loc = std::source_location::current();
+        LOG_ERROR("File: {}:({}:{}) '{}', CUDA assert: {}\n",
+            loc.file_name(), loc.line(), loc.column(), loc.function_name(), cudaGetErrorString(code));
         exit(code);
     }
 }
@@ -36,7 +39,9 @@ inline void CusolverAssert(const cusolverStatus_t code)
 {
     if (code != CUSOLVER_STATUS_SUCCESS)
     {
-        LOG_ERROR("CUSOLVER error {} at {}:{}\n", static_cast<int>(code), __FILE__, __LINE__);
+        const auto loc = std::source_location::current();
+        LOG_ERROR("File: {}:({}:{}) '{}', CUSOLVER assert: {}\n",
+            loc.file_name(), loc.line(), loc.column(), loc.file_name(), static_cast<int>(code));
         exit(code);
     }
 }

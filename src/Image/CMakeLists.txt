@@ -1,6 +1,7 @@
 
 set(SOURCE_FILES
         Image.cu
+        ImageDataBuffer.cpp
 )
 
 add_library(hyper_image STATIC ${SOURCE_FILES})
